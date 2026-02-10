@@ -53,6 +53,14 @@ module.exports = function setupMembersApp() {
     // Webhooks
     membersApp.post('/webhooks/stripe', bodyParser.raw({type: 'application/json'}), stripeService.webhookController.handle.bind(stripeService.webhookController));
 
+    // BTCPay webhook handler
+    const btcpayWebhookController = require('../../services/payments/btcpay-webhook-controller');
+    const btcpayController = new btcpayWebhookController({
+        memberRepository: membersService.api.members,
+        paymentService: require('../../services/payments')
+    });
+    membersApp.post('/webhooks/btcpay', bodyParser.json(), btcpayController.handle.bind(btcpayController));
+
     // Initializes members specific routes as well as assigns members specific data to the req/res objects
     // We don't want to add global bodyParser middleware as that interferes with stripe webhook requests on - `/webhooks`.
 
