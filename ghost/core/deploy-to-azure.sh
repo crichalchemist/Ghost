@@ -36,7 +36,7 @@ echo "✅ Package created: ghost-privatestack.tar.gz"
 
 # Copy to VM
 echo "📤 Copying to VM (this may take a few minutes)..."
-scp ghost-privatestack.tar.gz azureuser@${RENTFALL_IP}:~/
+scp ghost-privatestack.tar.gz crichalchemist@${RENTFALL_IP}:~/
 
 echo "✅ Files copied!"
 
@@ -111,7 +111,7 @@ VMEOF
 
 # Copy setup script to VM
 echo "📤 Copying setup script to VM..."
-scp vm-setup.sh azureuser@${RENTFALL_IP}:~/
+scp vm-setup.sh crichalchemist@${RENTFALL_IP}:~/
 
 # SSH and run setup
 echo ""
@@ -119,7 +119,7 @@ echo "✅ Files ready on VM!"
 echo ""
 echo "🔑 To complete deployment, SSH into the VM:"
 echo ""
-echo "  ssh azureuser@${RENTFALL_IP}"
+echo "  ssh crichalchemist@${RENTFALL_IP}"
 echo ""
 echo "Then run:"
 echo ""
