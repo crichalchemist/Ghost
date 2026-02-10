@@ -16,6 +16,7 @@ const api = require('../../api').endpoints;
 const commentRouter = require('../comments');
 const announcementRouter = require('../announcement');
 const accessTokenAuth = require('./access-token-auth');
+const paymentSuccessHandler = require('./payment-success-handler');
 
 /**
  * @returns {import('express').Application}
@@ -45,6 +46,9 @@ module.exports = function setupMembersApp() {
             models.MemberCryptoSubscription
         );
     });
+
+    // Payment success handler - shows access token after BTCPay redirect
+    membersApp.get('/payment-success', paymentSuccessHandler.handlePaymentSuccess);
 
     // Webhooks
     membersApp.post('/webhooks/stripe', bodyParser.raw({type: 'application/json'}), stripeService.webhookController.handle.bind(stripeService.webhookController));
