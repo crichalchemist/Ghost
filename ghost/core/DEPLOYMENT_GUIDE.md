@@ -5,8 +5,8 @@
 - Region: France Central
 - Load Balancer: `ghostbusters`
 - VMs:
-  - `rentfall` (Standard_B4s_v2: 4 vCPUs, 8GB RAM) ← Ghost + BTCPay
-  - `slimer-osmosis` (Standard_B2as_v2: 2 vCPUs, 1GB RAM) ← Ghost replica
+  - `rentfall` (Standard_B4s_v2: 4 vCPUs, 8GB RAM) ← Primary Ghost + MySQL + Redis
+  - `slimer-osmosis` (Standard_B2as_v2: 2 vCPUs, 1GB RAM) ← BTCPay Server
 
 ## Architecture Overview
 
@@ -16,19 +16,23 @@ Internet
 Load Balancer (ghostbusters)
     ↓
 Backend Pool
-    ├─→ rentfall (Primary)
+    ├─→ rentfall (Primary Ghost)
     │   ├─ Ghost CMS (port 2368)
-    │   ├─ BTCPay Server (port 23000)
     │   ├─ MySQL (port 3306)
     │   └─ Redis (port 6379)
     │
-    └─→ slimer-osmosis (Replica)
-        └─ Ghost CMS (port 2368)
+    └─→ slimer-osmosis (BTCPay Server)
+        ├─ BTCPay Server (port 23000)
+        └─ PostgreSQL (port 5432)
+
+Note: Both VMs communicate for payment processing:
+- rentfall receives webhooks from slimer-osmosis
+- Ghost on rentfall creates invoices on slimer-osmosis BTCPay
 ```
 
 ## Deployment Steps
 
-### Phase 1: Prepare rentfall (Primary VM)
+### Phase 1: Prepare rentfall (Primary Ghost VM)
 
 #### 1.1 SSH into rentfall
 ```bash
@@ -64,7 +68,7 @@ mkdir -p ~/privatestack/{ghost,btcpay,mysql,redis}
 cd ~/privatestack
 ```
 
-#### 1.4 Create docker-compose.yml
+#### 1.4 Create docker-compose.yml for Ghost on rentfall
 ```yaml
 version: '3.8'
 
@@ -97,36 +101,6 @@ services:
     ports:
       - "6379:6379"
 
-  btcpay:
-    image: btcpayserver/btcpayserver:1.13.1
-    container_name: btcpay-server
-    restart: unless-stopped
-    environment:
-      BTCPAY_HOST: ${BTCPAY_DOMAIN}
-      BTCPAY_PROTOCOL: https
-      BTCPAY_ROOTPATH: /
-      BTCPAY_POSTGRES: "User ID=postgres;Password=${POSTGRES_PASSWORD};Host=postgres;Port=5432;Database=btcpayserver"
-    volumes:
-      - ./btcpay/data:/datadir
-    networks:
-      - ghost-network
-    ports:
-      - "23000:49392"
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: btcpay-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: btcpayserver
-    volumes:
-      - ./btcpay/postgres:/var/lib/postgresql/data
-    networks:
-      - ghost-network
-
   ghost:
     image: ghost:5.latest
     container_name: ghost-cms
@@ -142,9 +116,9 @@ services:
       mail__options__service: Mailgun
       mail__options__auth__user: ${MAILGUN_USER}
       mail__options__auth__pass: ${MAILGUN_PASSWORD}
-      # BTCPay configuration
+      # BTCPay configuration - points to slimer-osmosis VM
       btcpay__enabled: true
-      btcpay__apiUrl: http://btcpay:49392
+      btcpay__apiUrl: http://${SLIMER_OSMOSIS_PRIVATE_IP}:23000
       btcpay__apiKey: ${BTCPAY_API_KEY}
       btcpay__storeId: ${BTCPAY_STORE_ID}
       btcpay__webhookSecret: ${BTCPAY_WEBHOOK_SECRET}
@@ -174,18 +148,15 @@ MYSQL_PASSWORD=<generate-strong-password>
 # Redis
 REDIS_PASSWORD=<generate-strong-password>
 
-# PostgreSQL (for BTCPay)
-POSTGRES_PASSWORD=<generate-strong-password>
-
 # Domains
 GHOST_DOMAIN=yourdomain.com
-BTCPAY_DOMAIN=btcpay.yourdomain.com
 
 # Mail (Mailgun or other SMTP)
 MAILGUN_USER=postmaster@yourdomain.com
 MAILGUN_PASSWORD=<your-mailgun-api-key>
 
-# BTCPay (get these after BTCPay setup)
+# BTCPay (get these after BTCPay setup on slimer-osmosis)
+SLIMER_OSMOSIS_PRIVATE_IP=<internal-ip-of-slimer-osmosis>
 BTCPAY_API_KEY=<will-set-after-btcpay-setup>
 BTCPAY_STORE_ID=<will-set-after-btcpay-setup>
 BTCPAY_WEBHOOK_SECRET=<generate-random-string>
@@ -195,7 +166,6 @@ ENVEOF
 echo "MYSQL_ROOT_PASSWORD=$(openssl rand -base64 32)" >> .env
 echo "MYSQL_PASSWORD=$(openssl rand -base64 32)" >> .env
 echo "REDIS_PASSWORD=$(openssl rand -base64 32)" >> .env
-echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)" >> .env
 echo "BTCPAY_WEBHOOK_SECRET=$(openssl rand -hex 32)" >> .env
 ```
 
@@ -256,47 +226,133 @@ docker build -t ghost-privatestack:latest .
     # ... rest stays same
 ```
 
-### Phase 3: Launch Services
+### Phase 3: Setup slimer-osmosis (BTCPay Server VM)
 
-#### 3.1 Start infrastructure services
+#### 3.1 SSH into slimer-osmosis
 ```bash
-cd ~/privatestack
-docker-compose up -d mysql redis postgres
-docker-compose logs -f mysql  # Wait for "ready for connections"
+# Get public IP
+az vm list-ip-addresses -g GHOST-PLATFORM-RG -n slimer-osmosis --query "[0].virtualMachine.network.publicIpAddresses[0].ipAddress" -o tsv
+
+# SSH
+ssh azureuser@<SLIMER_IP>
 ```
 
-#### 3.2 Start BTCPay Server
+#### 3.2 Install Docker on slimer-osmosis
 ```bash
-docker-compose up -d btcpay
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Logout and login again
+exit
+# ssh back in
+```
+
+#### 3.3 Create BTCPay docker-compose on slimer-osmosis
+```bash
+mkdir -p ~/btcpay
+cd ~/btcpay
+
+cat > docker-compose.yml << 'BTCEOF'
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: btcpay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: btcpay
+      POSTGRES_USER: btcpay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    networks:
+      - btcpay-network
+    ports:
+      - "5432:5432"
+
+  btcpay:
+    image: btcpayserver/btcpayserver:1.13.1
+    container_name: btcpay-server
+    restart: unless-stopped
+    environment:
+      BTCPAY_POSTGRES: "User ID=btcpay;Password=${POSTGRES_PASSWORD};Host=postgres;Port=5432;Database=btcpay"
+      BTCPAY_NETWORK: testnet
+      BTCPAY_CHAINS: "btc"
+    volumes:
+      - ./btcpay/data:/datadir
+    networks:
+      - btcpay-network
+    ports:
+      - "23000:49392"
+    depends_on:
+      - postgres
+
+networks:
+  btcpay-network:
+    driver: bridge
+BTCEOF
+
+# Create .env for BTCPay
+cat > .env << 'ENVEOF'
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+ENVEOF
+```
+
+#### 3.4 Start BTCPay Server
+```bash
+docker-compose up -d
 docker-compose logs -f btcpay  # Wait for startup
-
-# Access BTCPay at http://<RENTFALL_IP>:23000
-# Create account and store
 ```
 
-#### 3.3 Configure BTCPay
-1. Open browser: `http://<RENTFALL_IP>:23000`
+#### 3.5 Configure BTCPay
+1. Open browser: `http://<SLIMER_PUBLIC_IP>:23000`
 2. Create admin account
 3. Create store: "Ghost Subscriptions"
 4. Settings → Access Tokens → Create new token (with full permissions)
 5. Copy API key and Store ID
-6. Update `.env` with these values
+6. Get slimer-osmosis private IP: `az vm show -g GHOST-PLATFORM-RG -n slimer-osmosis --query "privateIps" -o tsv`
 
-#### 3.4 Start Ghost
+### Phase 4: Start Ghost on rentfall
+
+#### 4.1 Update rentfall .env with BTCPay credentials
 ```bash
-# Update .env with BTCPay credentials
-nano .env  # Add BTCPAY_API_KEY and BTCPAY_STORE_ID
+# SSH back to rentfall
+ssh azureuser@<RENTFALL_IP>
 
-# Start Ghost
+cd ~/privatestack
+nano .env  # Add:
+# SLIMER_OSMOSIS_PRIVATE_IP=<private-ip-from-3.5>
+# BTCPAY_API_KEY=<api-key-from-3.5>
+# BTCPAY_STORE_ID=<store-id-from-3.5>
+```
+
+#### 4.2 Start infrastructure services
+```bash
+docker-compose up -d mysql redis
+docker-compose logs -f mysql  # Wait for "ready for connections"
+```
+
+#### 4.3 Start Ghost
+```bash
 docker-compose up -d ghost
 docker-compose logs -f ghost  # Check for errors
 
 # Access Ghost at http://<RENTFALL_IP>:2368
 ```
 
-### Phase 4: Configure Load Balancer
+### Phase 5: Configure Load Balancer
 
-#### 4.1 Add health probe
+#### 5.1 Add health probe
 ```bash
 az network lb probe create \
   --resource-group GHOST-PLATFORM-RG \
@@ -307,7 +363,7 @@ az network lb probe create \
   --path /ghost/api/v4/admin/site/
 ```
 
-#### 4.2 Add load balancing rule
+#### 5.2 Add load balancing rule
 ```bash
 az network lb rule create \
   --resource-group GHOST-PLATFORM-RG \
@@ -321,15 +377,15 @@ az network lb rule create \
   --probe-name ghost-health
 ```
 
-### Phase 5: Configure BTCPay Webhooks
+### Phase 6: Configure BTCPay Webhooks
 
-#### 5.1 Get Ghost webhook URL
+#### 6.1 Get Ghost webhook URL
 ```bash
 # Your webhook URL will be:
 https://yourdomain.com/members/webhooks/btcpay
 ```
 
-#### 5.2 Add webhook in BTCPay
+#### 6.2 Add webhook in BTCPay
 1. BTCPay → Store → Settings → Webhooks
 2. Add webhook:
    - Payload URL: `https://yourdomain.com/members/webhooks/btcpay`
@@ -337,23 +393,12 @@ https://yourdomain.com/members/webhooks/btcpay
    - Events: InvoiceSettled, InvoiceExpired, InvoiceInvalid
 3. Save
 
-### Phase 6: Deploy to slimer-osmosis (Replica)
-
-#### 6.1 Simplified Ghost-only deployment
-```bash
-# SSH into slimer-osmosis
-ssh azureuser@<SLIMER_IP>
-
-# Install Docker (same as 1.2)
-# Copy ghost-privatestack.tar.gz
-# Create simplified docker-compose.yml (Ghost only, connects to rentfall MySQL)
-```
-
 ## Testing the Deployment
 
 ### Test 1: BTCPay Integration
 ```bash
-curl -X POST http://<RENTFALL_IP>:23000/api/v1/stores/<STORE_ID>/invoices \
+# Test BTCPay API on slimer-osmosis
+curl -X POST http://<SLIMER_PUBLIC_IP>:23000/api/v1/stores/<STORE_ID>/invoices \
   -H "Authorization: token <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -380,12 +425,32 @@ curl http://<RENTFALL_IP>:2368/ghost/api/v4/admin/site/
 
 ### Test 4: Bearer Token Access
 ```bash
-# After creating anonymous subscription, get access token from DB
-mysql -h <RENTFALL_IP> -u ghost -p ghost_production \
+# After creating anonymous subscription, get access token from DB (on rentfall)
+mysql -h <RENTFALL_PUBLIC_IP> -u ghost -p ghost_production \
   -e "SELECT access_token FROM members_crypto_subscriptions WHERE access_token IS NOT NULL LIMIT 1;"
 
-# Test access URL
-curl -I http://<RENTFALL_IP>:2368/members/access/<TOKEN>
+# Test access URL (Ghost on rentfall)
+curl -I http://<RENTFALL_PUBLIC_IP>:2368/members/access/<TOKEN>
+```
+
+## Network Configuration
+
+### Ensure VM-to-VM Connectivity
+Both VMs need to communicate:
+- Ghost on rentfall creates invoices on BTCPay (slimer-osmosis)
+- BTCPay on slimer-osmosis sends webhooks to Ghost (rentfall)
+
+```bash
+# Check Azure NSG allows traffic between VMs
+# Both VMs should be in the same virtual network or have peering
+
+# Get private IPs
+az vm show -g GHOST-PLATFORM-RG -n rentfall --query "privateIps" -o tsv
+az vm show -g GHOST-PLATFORM-RG -n slimer-osmosis --query "privateIps" -o tsv
+
+# Ensure NSG allows internal traffic on required ports:
+# - rentfall needs to reach slimer-osmosis:23000 (BTCPay API)
+# - slimer-osmosis needs to reach rentfall:2368 (Ghost webhook)
 ```
 
 ## Security Hardening
@@ -424,43 +489,85 @@ docker run -d -p 80:80 -p 443:443 \
 
 ## Monitoring
 
-### Check service health
+### Check service health on rentfall
 ```bash
+# SSH to rentfall
+ssh azureuser@<RENTFALL_PUBLIC_IP>
+cd ~/privatestack
+
+# Check Ghost services
 docker-compose ps
 docker-compose logs ghost | tail -50
-docker-compose logs btcpay | tail -50
-```
 
-### Check Ghost database
-```bash
+# Check Ghost database
 docker exec -it ghost-mysql mysql -u ghost -p ghost_production \
   -e "SELECT COUNT(*) FROM members_crypto_subscriptions;"
 ```
 
+### Check BTCPay health on slimer-osmosis
+```bash
+# SSH to slimer-osmosis
+ssh azureuser@<SLIMER_PUBLIC_IP>
+cd ~/btcpay
+
+# Check BTCPay services
+docker-compose ps
+docker-compose logs btcpay | tail -50
+```
+
 ## Troubleshooting
 
-### Ghost won't start
+### Ghost won't start (on rentfall)
 ```bash
+ssh azureuser@<RENTFALL_PUBLIC_IP>
+cd ~/privatestack
+
+# Check Ghost logs
 docker-compose logs ghost
+
 # Check database connection
-# Check BTCPay configuration
+docker exec -it ghost-mysql mysql -u ghost -p ghost_production -e "SELECT 1;"
+
+# Check BTCPay connectivity
+curl http://<SLIMER_OSMOSIS_PRIVATE_IP>:23000
 ```
 
 ### BTCPay webhooks not working
 ```bash
-# Check webhook URL is accessible
+# On rentfall: Check if webhook URL is accessible from outside
 curl -I https://yourdomain.com/members/webhooks/btcpay
 
-# Check Ghost logs for webhook errors
+# On rentfall: Check Ghost logs for webhook errors
+ssh azureuser@<RENTFALL_PUBLIC_IP>
+cd ~/privatestack
 docker-compose logs ghost | grep webhook
+
+# On slimer-osmosis: Check BTCPay webhook logs
+ssh azureuser@<SLIMER_PUBLIC_IP>
+cd ~/btcpay
+docker-compose logs btcpay | grep webhook
 ```
 
 ### Anonymous subscriptions not created
 ```bash
-# Check BTCPay webhook logs
-docker-compose logs btcpay | grep webhook
+# On slimer-osmosis: Check BTCPay invoice creation
+ssh azureuser@<SLIMER_PUBLIC_IP>
+cd ~/btcpay
+docker-compose logs btcpay | grep invoice
 
-# Check Ghost database
+# On rentfall: Check Ghost database
+ssh azureuser@<RENTFALL_PUBLIC_IP>
 docker exec -it ghost-mysql mysql -u ghost -p ghost_production \
   -e "SELECT * FROM members_crypto_subscriptions ORDER BY created_at DESC LIMIT 5;"
+```
+
+### Network connectivity between VMs
+```bash
+# From rentfall, test connectivity to slimer-osmosis BTCPay
+ssh azureuser@<RENTFALL_PUBLIC_IP>
+curl http://<SLIMER_OSMOSIS_PRIVATE_IP>:23000
+
+# From slimer-osmosis, test webhook callback to rentfall
+ssh azureuser@<SLIMER_PUBLIC_IP>
+curl https://yourdomain.com/members/webhooks/btcpay
 ```
