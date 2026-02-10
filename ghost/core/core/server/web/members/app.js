@@ -15,6 +15,7 @@ const api = require('../../api').endpoints;
 
 const commentRouter = require('../comments');
 const announcementRouter = require('../announcement');
+const accessTokenAuth = require('./access-token-auth');
 
 /**
  * @returns {import('express').Application}
@@ -33,6 +34,17 @@ module.exports = function setupMembersApp() {
     membersApp.use(middleware.createSessionFromMagicLink);
 
     // Routing
+
+    // Bearer token access route for anonymous Bitcoin subscribers
+    membersApp.get('/access/:token', async (req, res, next) => {
+        const models = require('../../models');
+        await accessTokenAuth.authenticate(
+            req,
+            res,
+            next,
+            models.MemberCryptoSubscription
+        );
+    });
 
     // Webhooks
     membersApp.post('/webhooks/stripe', bodyParser.raw({type: 'application/json'}), stripeService.webhookController.handle.bind(stripeService.webhookController));
