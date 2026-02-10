@@ -583,6 +583,10 @@ module.exports = class StripeAPI {
             stripeSessionOptions.customer_email = customerEmail;
         }
 
+        // Privacy-focused billing address collection:
+        // - By default (no billing_address_collection set), Stripe only collects postal code for card verification
+        // - Full address is only collected when automatic tax calculation requires it
+        // - This minimizes data collection while maintaining payment and tax compliance
         if (customerId && this._config.enableAutomaticTax) {
             stripeSessionOptions.customer_update = {address: 'auto'};
         }
