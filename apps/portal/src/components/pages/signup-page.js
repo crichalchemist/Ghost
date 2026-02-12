@@ -365,7 +365,9 @@ class SignupPage extends React.Component {
             email: '',
             plan: 'free',
             showNewsletterSelection: false,
-            termsCheckboxChecked: false
+            termsCheckboxChecked: false,
+            paymentMethod: 'stripe',
+            provideEmail: false
         };
 
         this.termsRef = React.createRef();
@@ -420,7 +422,14 @@ class SignupPage extends React.Component {
             };
         }, () => {
             const {site, doAction} = this.context;
-            const {name, email, plan, phonenumber, token, errors} = this.state;
+            const {name, email, plan, phonenumber, token, errors, paymentMethod, provideEmail} = this.state;
+
+            // Bitcoin checkout bypasses normal form validation when email not provided
+            if (paymentMethod === 'bitcoin' && !provideEmail) {
+                doAction('bitcoinCheckout', {email: null});
+                return;
+            }
+
             const hasFormErrors = (errors && Object.values(errors).filter(d => !!d).length > 0);
 
             // Only scroll checkbox into view if it's the only error
@@ -433,6 +442,13 @@ class SignupPage extends React.Component {
             }
 
             if (!hasFormErrors) {
+                // Bitcoin with email: use BTCPay checkout
+                if (paymentMethod === 'bitcoin') {
+                    doAction('bitcoinCheckout', {email});
+                    return;
+                }
+
+                // Stripe: use normal flow
                 if (hasMultipleNewsletters({site})) {
                     this.setState({
                         showNewsletterSelection: true,
@@ -505,35 +521,39 @@ class SignupPage extends React.Component {
 
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
+        const isBitcoin = state.paymentMethod === 'bitcoin';
+        const showEmail = !isBitcoin || state.provideEmail;
 
         const errors = state.errors || {};
-        const fields = [
-            {
+        const fields = [];
+
+        if (showEmail) {
+            fields.push({
                 type: 'email',
                 value: state.email,
                 placeholder: t('jamie@example.com'),
-                label: t('Email'),
+                label: isBitcoin ? t('Email (optional)') : t('Email'),
                 name: 'email',
-                required: true,
+                required: !isBitcoin,
                 tabIndex: 2,
                 errorMessage: errors.email || ''
-            },
-            {
-                type: 'text',
-                value: state.phonenumber,
-                placeholder: t('+1 (123) 456-7890'),
-                // Doesn't need translation, hidden field
-                label: t('Phone number'),
-                name: 'phonenumber',
-                required: false,
-                tabIndex: -1,
-                autoComplete: 'off',
-                hidden: true
-            }
-        ];
+            });
+        }
 
-        /** Show Name field if portal option is set*/
-        if (portalName) {
+        fields.push({
+            type: 'text',
+            value: state.phonenumber,
+            placeholder: t('+1 (123) 456-7890'),
+            label: t('Phone number'),
+            name: 'phonenumber',
+            required: false,
+            tabIndex: -1,
+            autoComplete: 'off',
+            hidden: true
+        });
+
+        /** Show Name field if portal option is set and not Bitcoin anonymous */
+        if (portalName && !isBitcoin) {
             fields.unshift({
                 type: 'text',
                 value: state.name,
@@ -545,7 +565,9 @@ class SignupPage extends React.Component {
                 errorMessage: errors.name || ''
             });
         }
-        fields[0].autoFocus = true;
+        if (fields.length > 0 && !fields[0].hidden) {
+            fields[0].autoFocus = true;
+        }
         if (fieldNames && fieldNames.length > 0) {
             return fields.filter((f) => {
                 return fieldNames.includes(f.name);
@@ -597,8 +619,93 @@ class SignupPage extends React.Component {
         );
     }
 
+    renderPaymentMethodSelector() {
+        const {paymentMethod} = this.state;
+        const {brandColor} = this.context;
+
+        return (
+            <div className="gh-portal-payment-methods" style={{marginBottom: '20px'}}>
+                <div
+                    className={`gh-portal-payment-option ${paymentMethod === 'stripe' ? 'selected' : ''}`}
+                    onClick={() => this.setState({paymentMethod: 'stripe', provideEmail: false})}
+                    style={{
+                        padding: '12px 16px',
+                        border: paymentMethod === 'stripe' ? `2px solid ${brandColor}` : '1px solid var(--grey11)',
+                        borderRadius: '6px',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                        transition: 'border-color 0.2s'
+                    }}
+                >
+                    <div style={{fontWeight: '600', fontSize: '1.5rem', color: 'var(--grey1)'}}>
+                        {t('Credit Card')} - $10/{t('year')}
+                    </div>
+                    <div style={{fontSize: '1.3rem', color: 'var(--grey5)', marginTop: '2px'}}>
+                        {t('Quick and easy, powered by Stripe')}
+                    </div>
+                </div>
+                <div
+                    className={`gh-portal-payment-option ${paymentMethod === 'bitcoin' ? 'selected' : ''}`}
+                    onClick={() => this.setState({paymentMethod: 'bitcoin', provideEmail: false, name: ''})}
+                    style={{
+                        padding: '12px 16px',
+                        border: paymentMethod === 'bitcoin' ? `2px solid ${brandColor}` : '1px solid var(--grey11)',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        transition: 'border-color 0.2s'
+                    }}
+                >
+                    <div style={{fontWeight: '600', fontSize: '1.5rem', color: 'var(--grey1)'}}>
+                        {t('Bitcoin/Lightning')} - $30/{t('year')}
+                    </div>
+                    <div style={{fontSize: '1.3rem', color: 'var(--grey5)', marginTop: '2px'}}>
+                        {t('Private, no personal info required')}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    renderBitcoinEmailOption() {
+        const {provideEmail} = this.state;
+
+        return (
+            <div className="gh-portal-bitcoin-email-option" style={{marginBottom: '16px'}}>
+                <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '1.4rem', color: 'var(--grey3)'}}>
+                    <input
+                        type="checkbox"
+                        checked={provideEmail}
+                        onChange={(e) => this.setState({provideEmail: e.target.checked, email: ''})}
+                        style={{width: '16px', height: '16px'}}
+                    />
+                    {t('Provide email for renewal reminders (optional)')}
+                </label>
+
+                {!provideEmail && (
+                    <div style={{
+                        marginTop: '12px',
+                        padding: '12px',
+                        background: 'var(--grey14, #fef3cd)',
+                        borderRadius: '6px',
+                        fontSize: '1.3rem',
+                        color: 'var(--grey2)',
+                        lineHeight: '1.4em'
+                    }}>
+                        <p style={{margin: '0 0 4px', fontWeight: '600'}}>
+                            {t('You will receive a bookmark-only access link.')}
+                        </p>
+                        <p style={{margin: '0'}}>
+                            {t('Save this link carefully - it cannot be recovered!')}
+                        </p>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     renderSubmitButton() {
         const {action, site, brandColor, pageQuery} = this.context;
+        const {paymentMethod} = this.state;
 
         if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
             return null;
@@ -607,24 +714,26 @@ class SignupPage extends React.Component {
         let label = t('Continue');
         const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
 
-        if (hasOnlyFreePlan({site}) || showOnlyFree) {
+        if (paymentMethod === 'bitcoin') {
+            label = t('Pay with Bitcoin');
+        } else if (hasOnlyFreePlan({site}) || showOnlyFree) {
             label = t('Sign up');
         } else {
             return null;
         }
 
         let isRunning = false;
-        if (action === 'signup:running') {
+        if (action === 'signup:running' || action === 'bitcoinCheckout:running') {
             label = t('Sending...');
             isRunning = true;
         }
         let retry = false;
-        if (action === 'signup:failed') {
+        if (action === 'signup:failed' || action === 'bitcoinCheckout:failed') {
             label = t('Retry');
             retry = true;
         }
 
-        const disabled = (action === 'signup:running') ? true : false;
+        const disabled = (action === 'signup:running' || action === 'bitcoinCheckout:running') ? true : false;
         return (
             <ActionButton
                 style={{width: '100%'}}
@@ -733,13 +842,16 @@ class SignupPage extends React.Component {
 
         const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
         const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+        const isBitcoin = this.state.paymentMethod === 'bitcoin';
 
         const signupTerms = this.renderSignupTerms();
 
         return (
             <section className="gh-portal-signup">
                 <div className='gh-portal-section'>
+                    {this.renderPaymentMethodSelector()}
                     <div className='gh-portal-logged-out-form-container'>
+                        {isBitcoin && this.renderBitcoinEmailOption()}
                         <InputForm
                             fields={fields}
                             onChange={(e, field) => this.handleInputChange(e, field)}
@@ -747,7 +859,14 @@ class SignupPage extends React.Component {
                         />
                     </div>
                     <div>
-                        {(hasOnlyFree ?
+                        {isBitcoin ? (
+                            <div className='gh-portal-btn-container'>
+                                <div className='gh-portal-logged-out-form-container'>
+                                    {this.renderSubmitButton()}
+                                    {this.renderLoginMessage()}
+                                </div>
+                            </div>
+                        ) : (hasOnlyFree ?
                             <>
                                 {this.renderProducts()}
                                 {signupTerms &&
@@ -755,6 +874,12 @@ class SignupPage extends React.Component {
                                     {signupTerms}
                                 </div>
                                 }
+                                <div className='gh-portal-btn-container'>
+                                    <div className='gh-portal-logged-out-form-container'>
+                                        {this.renderSubmitButton()}
+                                        {this.renderLoginMessage()}
+                                    </div>
+                                </div>
                             </> :
                             <>
                                 {signupTerms &&
@@ -763,17 +888,8 @@ class SignupPage extends React.Component {
                                 </div>
                                 }
                                 {this.renderProducts()}
+                                {this.renderLoginMessage()}
                             </>)}
-
-                        {(hasOnlyFree ?
-                            <div className='gh-portal-btn-container'>
-                                <div className='gh-portal-logged-out-form-container'>
-                                    {this.renderSubmitButton()}
-                                    {this.renderLoginMessage()}
-                                </div>
-                            </div>
-                            :
-                            this.renderLoginMessage())}
                     </div>
                 </div>
             </section>

@@ -196,6 +196,26 @@ async function signup({data, state, api}) {
     }
 }
 
+async function bitcoinCheckout({data, state, api}) {
+    try {
+        const {email} = data;
+        await api.member.btcpayCheckout({
+            email: email || null
+        });
+        return {
+            page: 'loading'
+        };
+    } catch (e) {
+        return {
+            action: 'bitcoinCheckout:failed',
+            popupNotification: createPopupNotification({
+                type: 'bitcoinCheckout:failed', autoHide: false, closeable: true, state, status: 'error',
+                message: t('Failed to create Bitcoin checkout, please try again')
+            })
+        };
+    }
+}
+
 async function checkoutPlan({data, state, api}) {
     try {
         let {plan, offerId, tierId, cadence} = data;
@@ -673,6 +693,7 @@ const Actions = {
     clearPopupNotification,
     editBilling,
     manageBilling,
+    bitcoinCheckout,
     checkoutPlan,
     updateNewsletterPreference,
     showPopupNotification,

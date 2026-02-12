@@ -60,6 +60,11 @@ COPY ghost/i18n/package.json ghost/i18n/package.json
 COPY ghost/parse-email-address/package.json ghost/parse-email-address/package.json
 
 COPY .github/scripts/install-deps.sh .github/scripts/install-deps.sh
+
+# Configure git to use HTTPS instead of SSH for dependencies
+RUN git config --global url."https://github.com/".insteadOf ssh://git@github.com/ && \
+    git config --global url."https://github.com/".insteadOf git@github.com:
+
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn,id=yarn-cache \
     bash .github/scripts/install-deps.sh
 

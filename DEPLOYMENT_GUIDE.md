@@ -57,7 +57,7 @@ DESCRIBE members_crypto_subscriptions;
 
 ## Phase 2: BTCPay Server Deployment
 
-### Option A: Docker Deployment (Recommended)
+### Option A: Docker Deployment (Recommended)  <- done
 
 ```bash
 # On your VPS/server
@@ -91,12 +91,12 @@ export LETSENCRYPT_EMAIL="admin@yourdomain.com"
 Point your domain to BTCPay server:
 
 ```
-A Record: btcpay.yourdomain.com → YOUR_SERVER_IP
+A Record: payment.private-stack.dev → YOUR_SERVER_IP   <- done
 ```
 
 Wait for DNS propagation (5-60 minutes).
 
-### Step 4: Initial BTCPay Setup
+### Step 4: Initial BTCPay Setup      <- done
 
 1. Access: `https://btcpay.yourdomain.com`
 2. Create admin account
@@ -109,7 +109,7 @@ Wait for DNS propagation (5-60 minutes).
 5. Enable Lightning Network:
    - Store Settings → Lightning
    - Connect to LND node
-   - Create Lightning wallet
+   - Create Lightning wallet         
 
 ---
 
@@ -126,12 +126,12 @@ Wait for DNS propagation (5-60 minutes).
    - ✅ `btcpay.store.canviewstoresettings`
 4. Label: "Ghost Integration"
 5. Click "Generate API Key"
-6. **COPY AND SAVE** the API token (shown once!)
+6. **COPY AND SAVE** the API token (shown once!)  <- done
 
 ### Step 2: Get Store ID
 
 1. In BTCPay: Store Settings → General
-2. Copy "Store ID" (looks like: `ABcD1234EfGH5678`)
+2. Copy "Store ID" (looks like: `ABcD1234EfGH5678`) <-done
 
 ### Step 3: Create Webhook Secret
 
@@ -140,7 +140,7 @@ Wait for DNS propagation (5-60 minutes).
 openssl rand -hex 32
 ```
 
-Save this secret - you'll need it for Ghost configuration.
+Save this secret - you'll need it for Ghost configuration. <- done
 
 ---
 

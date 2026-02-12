@@ -128,6 +128,26 @@ module.exports = function setupMembersApp() {
     membersApp.post('/api/create-stripe-checkout-session', function lazyCreateCheckoutSessionMw(req, res, next) {
         return membersService.api.middleware.createCheckoutSession(req, res, next);
     });
+    membersApp.post('/api/create-btcpay-checkout-session', bodyParser.json(), async function createBtcpayCheckoutMw(req, res, next) {
+        try {
+            const paymentService = require('../../services/payments');
+            const btcpayProvider = paymentService.getProvider('btcpay');
+            if (!btcpayProvider || !btcpayProvider.isConfigured()) {
+                return res.status(503).json({errors: [{message: 'Bitcoin payments are not configured'}]});
+            }
+            const {email, successUrl, cancelUrl} = req.body;
+            const siteUrl = require('../../../shared/url-utils').urlFor('home', true);
+            const result = await btcpayProvider.createCheckoutSession({
+                memberEmail: email || null,
+                successUrl: successUrl || `${siteUrl}members/payment-success`,
+                cancelUrl: cancelUrl || siteUrl,
+                metadata: {requestSrc: 'portal'}
+            });
+            return res.json({url: result.checkoutUrl, invoiceId: result.sessionId});
+        } catch (err) {
+            return next(err);
+        }
+    });
     membersApp.post('/api/create-stripe-update-session', function lazyCreateCheckoutSetupSessionMw(req, res, next) {
         return membersService.api.middleware.createCheckoutSetupSession(req, res, next);
     });

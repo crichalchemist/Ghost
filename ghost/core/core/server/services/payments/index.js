@@ -3,6 +3,7 @@
  * Central service for managing multiple payment providers (Stripe + BTCPay)
  */
 
+const config = require('../../../shared/config');
 const StripeProvider = require('../stripe/stripe-api'); // Use existing Stripe service
 const BTCPayProvider = require('./btcpay-provider');
 const {getAllPricingOptions, findTierByPriceId} = require('./pricing-config');
@@ -237,5 +238,25 @@ class PaymentService {
     }
 }
 
-module.exports = PaymentService;
+// Initialize singleton instance with config from environment
+let paymentServiceInstance = null;
+
+function getPaymentService() {
+    if (!paymentServiceInstance) {
+        const stripeConfig = config.get('stripe');
+        const btcpayConfig = config.get('btcpay');
+
+        paymentServiceInstance = new PaymentService({
+            stripeConfig,
+            stripeProvider: null, // Will use existing Stripe service
+            btcpayConfig
+        });
+    }
+
+    return paymentServiceInstance;
+}
+
+// Export singleton instance
+module.exports = getPaymentService();
+module.exports.PaymentService = PaymentService; // Export class for testing
 

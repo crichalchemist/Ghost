@@ -467,6 +467,15 @@ export default class App extends React.Component {
     /** Fetch state from Portal Links */
     fetchLinkData(site, member) {
         const qParams = new URLSearchParams(window.location.search);
+
+        // Handle BTCPay success redirect
+        if (qParams.get('btcpay') === 'success') {
+            return {
+                showPopup: true,
+                page: 'paymentSuccess'
+            };
+        }
+
         if (qParams.get('action') === 'unsubscribe') {
             // if the user is unsubscribing from a newsletter with an old unsubscribe link that we can't validate, push them to newsletter mgmt where they have to log in
             if (qParams.get('key') && qParams.get('uuid')) {
