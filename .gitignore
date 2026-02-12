@@ -211,3 +211,6 @@ yalc.lock
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 /.gitconfig
+
+# Git worktrees - isolated development workspaces
+/.worktrees
