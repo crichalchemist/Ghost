@@ -185,6 +185,42 @@ class BTCPayWebhookController {
             status: 'paid'
         });
 
+        // Provision container for subscriber
+        if (subscriptionId && member.id) {
+            try {
+                const SubscriberProvisioningService = require('../subscriber-provisioning');
+                const provisioner = new SubscriberProvisioningService();
+
+                // Generate unique username: email prefix + random suffix to avoid collisions
+                const emailPrefix = (member.email || 'anon').split('@')[0].toLowerCase();
+                const uniqueSuffix = crypto.randomBytes(3).toString('hex');
+                const username = `${emailPrefix}-${uniqueSuffix}`;
+
+                const containerResult = await provisioner.provisionSubscriber({
+                    id: subscriptionId,
+                    email: member.email,
+                    username: username,
+                    custom_domain: null
+                });
+
+                // Store container info in subscription metadata
+                // metadata is already an object — spread it, don't JSON.parse it
+                const updatedMetadata = {...metadata, container: containerResult};
+
+                await knex('members_crypto_subscriptions')
+                    .where('id', subscriptionId)
+                    .update({
+                        metadata: JSON.stringify(updatedMetadata),
+                        updated_at: new Date()
+                    });
+
+                logging.info(`Provisioned container for Bitcoin subscription: ${subscriptionId} - URL: ${containerResult.url}`);
+            } catch (error) {
+                logging.error('Container provisioning failed (non-blocking):', error);
+                // Don't throw - subscription was created successfully, provisioning failed
+            }
+        }
+
         logging.info(`Created Bitcoin subscription for member: ${member.email}`);
     }
 
