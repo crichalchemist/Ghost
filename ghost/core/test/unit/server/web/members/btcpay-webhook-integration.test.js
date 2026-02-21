@@ -1,4 +1,4 @@
-const should = require('should');
+const assert = require('node:assert/strict');
 const sinon = require('sinon');
 const express = require('express');
 const request = require('supertest');
@@ -10,7 +10,7 @@ describe('BTCPay Webhook Integration', function () {
     beforeEach(function () {
         // Create a minimal Express app for testing
         app = express();
-        
+
         // Mock BTCPay webhook controller
         btcpayController = {
             handle: sinon.stub().callsFake((req, res) => {
@@ -33,8 +33,8 @@ describe('BTCPay Webhook Integration', function () {
             .send({type: 'InvoiceSettled', invoiceId: 'inv_123'})
             .expect(200);
 
-        response.body.should.have.property('received', true);
-        btcpayController.handle.calledOnce.should.be.true();
+        assert.equal(response.body.received, true);
+        assert.equal(btcpayController.handle.calledOnce, true);
     });
 
     it('should parse JSON body for BTCPay webhooks', async function () {
@@ -52,9 +52,9 @@ describe('BTCPay Webhook Integration', function () {
             .send(webhookData)
             .expect(200);
 
-        btcpayController.handle.calledOnce.should.be.true();
+        assert.equal(btcpayController.handle.calledOnce, true);
         const req = btcpayController.handle.firstCall.args[0];
-        req.body.should.deepEqual(webhookData);
+        assert.deepEqual(req.body, webhookData);
     });
 
     it('should handle BTCPay webhook errors gracefully', async function () {

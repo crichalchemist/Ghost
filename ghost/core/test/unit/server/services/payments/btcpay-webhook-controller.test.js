@@ -1,6 +1,5 @@
 const assert = require('node:assert/strict');
 const sinon = require('sinon');
-const should = require('should');
 const rewire = require('rewire');
 const BTCPayWebhookController = rewire('../../../../../core/server/services/payments/btcpay-webhook-controller');
 
@@ -116,9 +115,9 @@ describe('BTCPayWebhookController - Bearer Token Generation', function () {
             const subscriptionData = subscriptionInsertStub.firstCall.args[0];
 
             // Assert: Bearer token exists and is correct format
-            should.exist(subscriptionData.access_token);
-            subscriptionData.access_token.should.have.length(64);
-            subscriptionData.access_token.should.match(/^[a-f0-9]{64}$/);
+            assert.ok(subscriptionData.access_token);
+            assert.equal(subscriptionData.access_token.length, 64);
+            assert.match(subscriptionData.access_token, /^[a-f0-9]{64}$/);
 
             // Assert: Token is cryptographically secure (different each time)
             const token1 = subscriptionData.access_token;
@@ -130,7 +129,7 @@ describe('BTCPayWebhookController - Bearer Token Generation', function () {
             const subscriptionData2 = subscriptionInsertStub.firstCall.args[0];
             const token2 = subscriptionData2.access_token;
 
-            token1.should.not.equal(token2);
+            assert.notEqual(token1, token2);
 
             // Restore
             BTCPayWebhookController.__set__('require', originalRequire);
@@ -185,7 +184,7 @@ describe('BTCPayWebhookController - Bearer Token Generation', function () {
             const subscriptionData = subscriptionInsertStub.firstCall.args[0];
 
             // Assert: No bearer token for email-based subscription
-            should.not.exist(subscriptionData.access_token);
+            assert.ok(!subscriptionData.access_token);
 
             // Restore
             BTCPayWebhookController.__set__('require', originalRequire);
@@ -237,7 +236,7 @@ describe('BTCPayWebhookController - Bearer Token Generation', function () {
             // Assert: Subscription created without token
             sinon.assert.calledOnce(subscriptionInsertStub);
             const subscriptionData = subscriptionInsertStub.firstCall.args[0];
-            should.not.exist(subscriptionData.access_token);
+            assert.ok(!subscriptionData.access_token);
 
             // Restore
             BTCPayWebhookController.__set__('require', originalRequire);

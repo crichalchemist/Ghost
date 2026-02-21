@@ -1,4 +1,4 @@
-const should = require('should');
+const assert = require('node:assert/strict');
 const sinon = require('sinon');
 const errors = require('@tryghost/errors');
 
@@ -51,18 +51,18 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        should(next.called).be.false();
-        res.cookie.calledOnce.should.be.true();
-        res.cookie.firstCall.args[0].should.equal('ghost-members-ssr');
+        assert.equal(next.called, false);
+        assert.equal(res.cookie.calledOnce, true);
+        assert.equal(res.cookie.firstCall.args[0], 'ghost-members-ssr');
 
         // Verify cookie contains member ID
         const cookieValue = res.cookie.firstCall.args[1];
-        cookieValue.should.be.type('string');
+        assert.equal(typeof cookieValue, 'string');
         const parsedCookie = JSON.parse(cookieValue);
-        parsedCookie.should.have.property('memberId', 'mem_123');
-        parsedCookie.should.have.property('accessType', 'bearer-token');
+        assert.equal(parsedCookie.memberId, 'mem_123');
+        assert.equal(parsedCookie.accessType, 'bearer-token');
 
-        res.redirect.calledWith('/').should.be.true();
+        assert.equal(res.redirect.calledWith('/'), true);
     });
 
     it('should reject invalid token (wrong length)', async function () {
@@ -70,9 +70,9 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        res.cookie.called.should.be.false();
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.UnauthorizedError);
+        assert.equal(res.cookie.called, false);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.UnauthorizedError);
     });
 
     it('should reject token not found in database', async function () {
@@ -80,9 +80,9 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        res.cookie.called.should.be.false();
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.UnauthorizedError);
+        assert.equal(res.cookie.called, false);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.UnauthorizedError);
     });
 
     it('should reject expired subscription', async function () {
@@ -103,9 +103,9 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        res.cookie.called.should.be.false();
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.UnauthorizedError);
+        assert.equal(res.cookie.called, false);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.UnauthorizedError);
     });
 
     it('should handle missing token parameter', async function () {
@@ -113,9 +113,9 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        res.cookie.called.should.be.false();
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.UnauthorizedError);
+        assert.equal(res.cookie.called, false);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.UnauthorizedError);
     });
 
     it('should handle database errors gracefully', async function () {
@@ -126,8 +126,8 @@ describe('Access Token Authentication', function () {
 
         await accessTokenAuth.authenticate(req, res, next, MemberCryptoSubscription);
 
-        res.cookie.called.should.be.false();
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.equal(dbError);
+        assert.equal(res.cookie.called, false);
+        assert.equal(next.calledOnce, true);
+        assert.equal(next.firstCall.args[0], dbError);
     });
 });

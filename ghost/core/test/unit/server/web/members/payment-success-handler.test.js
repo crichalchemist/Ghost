@@ -1,4 +1,4 @@
-const should = require('should');
+const assert = require('node:assert/strict');
 const sinon = require('sinon');
 const errors = require('@tryghost/errors');
 
@@ -70,13 +70,13 @@ describe('Payment Success Handler', function () {
 
         await paymentSuccessHandler.handlePaymentSuccess(req, res, next);
 
-        res.json.calledOnce.should.be.true();
+        assert.equal(res.json.calledOnce, true);
         const response = res.json.firstCall.args[0];
-        response.should.have.property('success', true);
-        response.should.have.property('anonymous', true);
-        response.should.have.property('accessToken', subscription.access_token);
-        response.should.have.property('accessUrl');
-        response.accessUrl.should.equal('https://example.com/members/access/' + subscription.access_token);
+        assert.equal(response.success, true);
+        assert.equal(response.anonymous, true);
+        assert.equal(response.accessToken, subscription.access_token);
+        assert.ok(response.accessUrl);
+        assert.equal(response.accessUrl, 'https://example.com/members/access/' + subscription.access_token);
     });
 
     it('should return success with email for email-based subscription', async function () {
@@ -98,11 +98,11 @@ describe('Payment Success Handler', function () {
 
         await paymentSuccessHandler.handlePaymentSuccess(req, res, next);
 
-        res.json.calledOnce.should.be.true();
+        assert.equal(res.json.calledOnce, true);
         const response = res.json.firstCall.args[0];
-        response.should.have.property('success', true);
-        response.should.have.property('anonymous', false);
-        response.should.have.property('email', 'user@example.com');
+        assert.equal(response.success, true);
+        assert.equal(response.anonymous, false);
+        assert.equal(response.email, 'user@example.com');
     });
 
     it('should return error when invoice ID is missing', async function () {
@@ -110,8 +110,8 @@ describe('Payment Success Handler', function () {
 
         await paymentSuccessHandler.handlePaymentSuccess(req, res, next);
 
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.BadRequestError);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.BadRequestError);
     });
 
     it('should return error when subscription not found', async function () {
@@ -119,8 +119,8 @@ describe('Payment Success Handler', function () {
 
         await paymentSuccessHandler.handlePaymentSuccess(req, res, next);
 
-        next.calledOnce.should.be.true();
-        next.firstCall.args[0].should.be.an.instanceOf(errors.NotFoundError);
+        assert.equal(next.calledOnce, true);
+        assert.ok(next.firstCall.args[0] instanceof errors.NotFoundError);
     });
 
     it('should return pending status when payment not settled', async function () {
@@ -135,10 +135,10 @@ describe('Payment Success Handler', function () {
 
         await paymentSuccessHandler.handlePaymentSuccess(req, res, next);
 
-        res.status.calledWith(202).should.be.true();
-        res.json.calledOnce.should.be.true();
+        assert.equal(res.status.calledWith(202), true);
+        assert.equal(res.json.calledOnce, true);
         const response = res.json.firstCall.args[0];
-        response.should.have.property('success', false);
-        response.should.have.property('status', 'pending');
+        assert.equal(response.success, false);
+        assert.equal(response.status, 'pending');
     });
 });
