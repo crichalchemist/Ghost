@@ -137,6 +137,9 @@ function servePublicFiles(siteApp) {
     // Member attribution
     siteApp.get('/public/member-attribution.min.js', createPublicFileMiddleware('static', 'public/member-attribution.min.js', 'application/javascript', config.get('caching:publicAssets:maxAge')));
 
+    // Local Portal override (PrivateStack custom build)
+    siteApp.get('/public/portal.min.js', createPublicFileMiddleware('built', 'public/portal.min.js', 'application/javascript', config.get('caching:publicAssets:maxAge')));
+
     // Recommendations well-known
     siteApp.get('/.well-known/recommendations.json', createPublicFileMiddleware('built', '.well-known/recommendations.json', 'application/json', config.get('caching:publicAssets:maxAge'), {disableServerCache: true}));
 

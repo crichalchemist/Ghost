@@ -641,7 +641,7 @@ class SignupPage extends React.Component {
                         {t('Credit Card')} - $10/{t('year')}
                     </div>
                     <div style={{fontSize: '1.3rem', color: 'var(--grey5)', marginTop: '2px'}}>
-                        {t('Quick and easy, powered by Stripe')}
+                        {t('Your own blog at username.private-stack.dev')}
                     </div>
                 </div>
                 <div
@@ -659,7 +659,7 @@ class SignupPage extends React.Component {
                         {t('Bitcoin/Lightning')} - $30/{t('year')}
                     </div>
                     <div style={{fontSize: '1.3rem', color: 'var(--grey5)', marginTop: '2px'}}>
-                        {t('Private, no personal info required')}
+                        {t('Your own blog — no personal info required')}
                     </div>
                 </div>
             </div>
@@ -969,6 +969,9 @@ class SignupPage extends React.Component {
             <header className='gh-portal-signup-header'>
                 {this.renderSiteIcon()}
                 <h1 className="gh-portal-main-title" data-testid='site-title-text'>{siteTitle}</h1>
+                <p style={{fontSize: '1.5rem', color: 'var(--grey5)', margin: '-4px 0 12px', textAlign: 'center', lineHeight: '1.4'}}>
+                    {t('Get your own private blog — hosted, managed, and censorship-resistant.')}
+                </p>
             </header>
         );
     }
