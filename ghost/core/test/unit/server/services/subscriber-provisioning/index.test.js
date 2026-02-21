@@ -124,17 +124,102 @@ describe('SubscriberProvisioningService', function () {
         });
     });
 
-    describe('updateCaddyConfig', function () {
+    describe('provider switching', function () {
+        it('should use DockerManager by default', function () {
+            const service = createService();
+            assert.ok(service.manager);
+            assert.equal(service._provider, 'docker');
+        });
+
+        it('should use AcaManager when provider is aca', function () {
+            const acaManagerStub = {
+                createSubscriberContainer: sinon.stub().resolves({
+                    containerAppName: 'ghost-sub-test',
+                    url: 'https://test.private-stack.dev',
+                    subscriberId: '123'
+                }),
+                deleteSubscriberContainer: sinon.stub().resolves()
+            };
+            const service = new SubscriberProvisioningService({
+                provider: 'aca',
+                acaManager: acaManagerStub
+            });
+            assert.ok(service.manager);
+            assert.equal(service._provider, 'aca');
+        });
+
+        it('should use AcaManager when GHOST_CONTAINER_PROVIDER env is aca', function () {
+            process.env.GHOST_CONTAINER_PROVIDER = 'aca';
+            const acaManagerStub = {
+                createSubscriberContainer: sinon.stub().resolves({
+                    containerAppName: 'ghost-sub-test',
+                    url: 'https://test.private-stack.dev',
+                    subscriberId: '123'
+                }),
+                deleteSubscriberContainer: sinon.stub().resolves()
+            };
+            const service = new SubscriberProvisioningService({
+                acaManager: acaManagerStub
+            });
+            assert.ok(service.manager);
+            assert.equal(service._provider, 'aca');
+            delete process.env.GHOST_CONTAINER_PROVIDER;
+        });
+
+        it('should not update Caddy config in ACA mode on provision', async function () {
+            const acaManagerStub = {
+                createSubscriberContainer: sinon.stub().resolves({
+                    containerAppName: 'ghost-sub-test',
+                    url: 'https://test.private-stack.dev',
+                    subscriberId: '123'
+                }),
+                deleteSubscriberContainer: sinon.stub().resolves()
+            };
+            const service = new SubscriberProvisioningService({
+                provider: 'aca',
+                acaManager: acaManagerStub,
+                fs: fsStub,
+                execAsync: execAsyncStub
+            });
+
+            await service.provisionSubscriber({
+                id: 'sub_1', email: 'test@example.com', username: 'testuser', custom_domain: null
+            });
+
+            sinon.assert.notCalled(fsStub.writeFile);
+            sinon.assert.notCalled(execAsyncStub);
+        });
+
+        it('should not update Caddy config in ACA mode on deprovision', async function () {
+            const acaManagerStub = {
+                createSubscriberContainer: sinon.stub().resolves(),
+                deleteSubscriberContainer: sinon.stub().resolves()
+            };
+            const service = new SubscriberProvisioningService({
+                provider: 'aca',
+                acaManager: acaManagerStub,
+                fs: fsStub,
+                execAsync: execAsyncStub
+            });
+
+            await service.deprovisionSubscriber('testuser');
+
+            sinon.assert.notCalled(fsStub.writeFile);
+            sinon.assert.notCalled(execAsyncStub);
+        });
+    });
+
+    describe('_updateCaddyConfig', function () {
         it('should fetch running subscribers from database', async function () {
             const service = createService();
-            await service.updateCaddyConfig();
+            await service._updateCaddyConfig();
 
             sinon.assert.calledWith(knexStub, 'subscribers');
         });
 
         it('should write generated Caddy config to Caddyfile', async function () {
             const service = createService();
-            await service.updateCaddyConfig();
+            await service._updateCaddyConfig();
 
             sinon.assert.calledOnce(fsStub.writeFile);
             const [filePath, content] = fsStub.writeFile.firstCall.args;
@@ -146,7 +231,7 @@ describe('SubscriberProvisioningService', function () {
 
         it('should reload Caddy via admin API', async function () {
             const service = createService();
-            await service.updateCaddyConfig();
+            await service._updateCaddyConfig();
 
             sinon.assert.calledOnce(execAsyncStub);
             const cmd = execAsyncStub.firstCall.args[0];
@@ -158,7 +243,7 @@ describe('SubscriberProvisioningService', function () {
 
             const service = createService();
             // Should not throw — Caddy reload failure is non-blocking
-            await service.updateCaddyConfig();
+            await service._updateCaddyConfig();
         });
     });
 });

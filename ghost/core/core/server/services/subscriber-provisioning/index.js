@@ -1,21 +1,42 @@
 const logging = require('@tryghost/logging');
-const DockerManager = require('./docker-manager');
-const ConfigGenerator = require('./config-generator');
 
 class SubscriberProvisioningService {
     /**
      * @param {Object} config
+     * @param {string} [config.provider] - 'docker' or 'aca'
      * @param {Object} [config.dockerManager] - DockerManager instance (injected for testing)
+     * @param {Object} [config.acaManager] - AcaManager instance (injected for testing)
      * @param {Function} [config.getKnex] - Function returning knex instance
-     * @param {Object} [config.fs] - fs module for writing Caddyfile
-     * @param {Function} [config.execAsync] - promisified exec for Caddy reload
+     * @param {Object} [config.fs] - fs module for writing Caddyfile (docker mode only)
+     * @param {Function} [config.execAsync] - promisified exec for Caddy reload (docker mode only)
      * @param {Object} [config.docker] - Options passed to DockerManager
+     * @param {Object} [config.aca] - Options passed to AcaManager
      */
     constructor(config = {}) {
-        this.dockerManager = config.dockerManager || new DockerManager(config.docker);
-        this.getKnex = config.getKnex || (() => require('../../data/db/connection'));
-        this.fs = config.fs || require('fs-extra');
-        this.execAsync = config.execAsync || require('util').promisify(require('child_process').exec);
+        const provider = config.provider || process.env.GHOST_CONTAINER_PROVIDER || 'docker';
+
+        if (provider === 'aca') {
+            if (config.acaManager) {
+                this.manager = config.acaManager;
+            } else {
+                const AcaManager = require('./aca-manager');
+                this.manager = new AcaManager(config.aca);
+            }
+            this._provider = 'aca';
+        } else {
+            if (config.dockerManager) {
+                this.manager = config.dockerManager;
+            } else {
+                const DockerManager = require('./docker-manager');
+                this.manager = new DockerManager(config.docker);
+            }
+            this._provider = 'docker';
+
+            // Caddy config dependencies — only used in docker mode
+            this.getKnex = config.getKnex || (() => require('../../data/db/connection'));
+            this.fs = config.fs || require('fs-extra');
+            this.execAsync = config.execAsync || require('util').promisify(require('child_process').exec);
+        }
     }
 
     /**
@@ -24,9 +45,11 @@ class SubscriberProvisioningService {
     async provisionSubscriber(subscriber) {
         logging.info(`Provisioning container for subscriber: ${subscriber.email || subscriber.username}`);
 
-        const result = await this.dockerManager.createSubscriberContainer(subscriber);
+        const result = await this.manager.createSubscriberContainer(subscriber);
 
-        await this.updateCaddyConfig();
+        if (this._provider === 'docker') {
+            await this._updateCaddyConfig();
+        }
 
         return result;
     }
@@ -37,36 +60,32 @@ class SubscriberProvisioningService {
     async deprovisionSubscriber(subscriberUsername) {
         logging.info(`Deprovisioning container for subscriber: ${subscriberUsername}`);
 
-        await this.dockerManager.deleteSubscriberContainer(subscriberUsername);
+        await this.manager.deleteSubscriberContainer(subscriberUsername);
 
-        await this.updateCaddyConfig();
+        if (this._provider === 'docker') {
+            await this._updateCaddyConfig();
+        }
     }
 
     /**
-     * Update Caddy reverse proxy config from current database state
+     * Update Caddy reverse proxy config — Docker mode only
      */
-    async updateCaddyConfig() {
+    async _updateCaddyConfig() {
         try {
             const knex = this.getKnex();
+            const ConfigGenerator = require('./config-generator');
 
-            // Fetch all running subscribers
             const subscribers = await knex('subscribers')
                 .where('status', 'running')
                 .select('username', 'port', 'custom_domain');
 
-            // Generate Caddy config
             const caddyConfig = ConfigGenerator.generateCaddyConfig(subscribers);
-
-            // Write to Caddyfile
             await this.fs.writeFile('Caddyfile', caddyConfig);
-
-            // Reload Caddy via admin API
             await this.execAsync('curl -s -X POST http://localhost:2019/load -H "Content-Type: text/caddyfile" --data-binary @Caddyfile');
 
             logging.info('Caddy configuration reloaded successfully');
         } catch (error) {
             logging.error('Failed to reload Caddy:', error);
-            // Don't throw — provisioning should succeed even if Caddy reload fails
         }
     }
 }
