@@ -16,21 +16,30 @@ describe('AcaManager', function () {
     beforeEach(function () {
         containerAppsClientStub = {
             subscriptionId: 'test-sub-id',
+            managedEnvironmentsStorages: {
+                createOrUpdate: sinon.stub().resolves(),
+                delete: sinon.stub().resolves()
+            },
             containerApps: {
                 beginCreateOrUpdateAndWait: sinon.stub().resolves({
                     name: 'ghost-sub-testuser',
-                    properties: {
-                        provisioningState: 'Succeeded',
-                        configuration: {
-                            ingress: {
-                                fqdn: 'ghost-sub-testuser.lemonmoss-13a98d43.francecentral.azurecontainerapps.io'
-                            }
+                    provisioningState: 'Succeeded',
+                    runningStatus: 'Running',
+                    configuration: {
+                        ingress: {
+                            fqdn: 'ghost-sub-testuser.lemonmoss-13a98d43.francecentral.azurecontainerapps.io'
                         }
                     }
                 }),
                 beginDeleteAndWait: sinon.stub().resolves(),
                 get: sinon.stub().resolves({
-                    properties: {provisioningState: 'Succeeded', runningStatus: 'Running'}
+                    provisioningState: 'Succeeded',
+                    runningStatus: 'Running',
+                    configuration: {
+                        ingress: {
+                            fqdn: 'ghost-sub-testuser.lemonmoss-13a98d43.francecentral.azurecontainerapps.io'
+                        }
+                    }
                 })
             }
         };
@@ -253,7 +262,25 @@ describe('AcaManager', function () {
             assert.equal(event.event_type, 'created');
         });
 
-        it('should set primary custom domain binding on ingress', async function () {
+        it('should register file share as ACA environment storage', async function () {
+            const manager = createManager();
+            await manager.createSubscriberContainer({
+                id: 'member_123',
+                email: 'test@example.com',
+                username: 'testuser',
+                custom_domain: null
+            });
+
+            sinon.assert.calledOnce(containerAppsClientStub.managedEnvironmentsStorages.createOrUpdate);
+            const callArgs = containerAppsClientStub.managedEnvironmentsStorages.createOrUpdate.firstCall.args;
+            assert.equal(callArgs[0], 'ghost-platform-rg');
+            assert.equal(callArgs[1], 'privatestack-env');
+            assert.equal(callArgs[2], 'ghost-testuser');
+            assert.equal(callArgs[3].properties.azureFile.shareName, 'ghost-testuser');
+            assert.equal(callArgs[3].properties.azureFile.accessMode, 'ReadWrite');
+        });
+
+        it('should not include custom domains on initial creation', async function () {
             const manager = createManager();
             await manager.createSubscriberContainer({
                 id: 'member_123',
@@ -263,27 +290,7 @@ describe('AcaManager', function () {
             });
 
             const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
-            const domains = envelope.configuration.ingress.customDomains;
-            assert.equal(domains.length, 1);
-            assert.equal(domains[0].name, 'testuser.private-stack.dev');
-            assert.equal(domains[0].bindingType, 'SniEnabled');
-        });
-
-        it('should include subscriber custom domain binding when provided', async function () {
-            const manager = createManager();
-            await manager.createSubscriberContainer({
-                id: 'member_123',
-                email: 'test@example.com',
-                username: 'testuser',
-                custom_domain: 'myblog.com'
-            });
-
-            const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
-            const domains = envelope.configuration.ingress.customDomains;
-            assert.equal(domains.length, 2);
-            assert.equal(domains[0].name, 'testuser.private-stack.dev');
-            assert.equal(domains[1].name, 'myblog.com');
-            assert.equal(domains[1].bindingType, 'SniEnabled');
+            assert.equal(envelope.configuration.ingress.customDomains, undefined);
         });
 
         it('should reject invalid usernames', async function () {
@@ -437,6 +444,54 @@ describe('AcaManager', function () {
                 () => manager.deleteSubscriberContainer('nonexistent'),
                 {message: /Subscriber not found/}
             );
+        });
+    });
+
+    describe('addCustomDomain', function () {
+        it('should add a custom domain to an existing container app', async function () {
+            containerAppsClientStub.containerApps.get.resolves({
+                location: 'francecentral',
+                configuration: {
+                    ingress: {
+                        external: true,
+                        targetPort: 2368,
+                        customDomains: []
+                    }
+                },
+                template: {containers: [{name: 'ghost'}]}
+            });
+
+            const manager = createManager();
+            await manager.addCustomDomain('testuser', 'testuser.private-stack.dev');
+
+            sinon.assert.calledOnce(containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait);
+            const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
+            const domains = envelope.configuration.ingress.customDomains;
+            assert.equal(domains.length, 1);
+            assert.equal(domains[0].name, 'testuser.private-stack.dev');
+            assert.equal(domains[0].bindingType, 'Disabled');
+        });
+
+        it('should use SniEnabled when certificateId is provided', async function () {
+            containerAppsClientStub.containerApps.get.resolves({
+                location: 'francecentral',
+                configuration: {
+                    ingress: {
+                        external: true,
+                        targetPort: 2368,
+                        customDomains: []
+                    }
+                },
+                template: {containers: [{name: 'ghost'}]}
+            });
+
+            const manager = createManager();
+            await manager.addCustomDomain('testuser', 'testuser.private-stack.dev', 'cert-123');
+
+            const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
+            const domains = envelope.configuration.ingress.customDomains;
+            assert.equal(domains[0].bindingType, 'SniEnabled');
+            assert.equal(domains[0].certificateId, 'cert-123');
         });
     });
 

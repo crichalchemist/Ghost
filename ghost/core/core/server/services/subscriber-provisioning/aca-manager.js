@@ -92,20 +92,40 @@ class AcaManager {
     }
 
     /**
-     * Create an Azure File Share and upload Ghost config
+     * Create an Azure File Share, upload Ghost config, and register
+     * the share as a storage resource in the ACA environment.
      * @param {string} shareName - Name of the file share
      * @param {Object} ghostConfig - Ghost configuration object
      */
     async _createFileShare(shareName, ghostConfig) {
+        // 1. Create the file share in Azure Storage
         const shareClient = this.shareServiceClient.getShareClient(shareName);
         await shareClient.create();
 
+        // 2. Upload Ghost config
         const dirClient = shareClient.getDirectoryClient('');
         const configContent = JSON.stringify(ghostConfig, null, 2);
         const configBuffer = Buffer.from(configContent, 'utf8');
         const fileClient = dirClient.getFileClient('config.production.json');
         await fileClient.create(configBuffer.length);
         await fileClient.uploadRange(configBuffer, 0, configBuffer.length);
+
+        // 3. Register the share as a named storage in the ACA environment
+        await this.containerAppsClient.managedEnvironmentsStorages.createOrUpdate(
+            this.resourceGroup,
+            this.environmentName,
+            shareName,
+            {
+                properties: {
+                    azureFile: {
+                        accountName: this.storageAccountName,
+                        accountKey: this.storageAccountKey,
+                        shareName: shareName,
+                        accessMode: 'ReadWrite'
+                    }
+                }
+            }
+        );
     }
 
     /**
@@ -130,18 +150,9 @@ class AcaManager {
             const subscriptionId = this.containerAppsClient.subscriptionId || '';
             const managedEnvironmentId = `/subscriptions/${subscriptionId}/resourceGroups/${this.resourceGroup}/providers/Microsoft.App/managedEnvironments/${this.environmentName}`;
 
-            const customDomains = [];
-            const primaryDomain = `${subscriber.username}.${this.domain}`;
-            customDomains.push({
-                name: primaryDomain,
-                bindingType: 'SniEnabled'
-            });
-            if (subscriber.custom_domain) {
-                customDomains.push({
-                    name: subscriber.custom_domain,
-                    bindingType: 'SniEnabled'
-                });
-            }
+            // Custom domain binding requires DNS validation + managed cert provisioning.
+            // This is a separate step after the container is created and DNS is configured.
+            // See addCustomDomain() method.
 
             const containerAppEnvelope = {
                 location: this.location,
@@ -150,8 +161,7 @@ class AcaManager {
                     ingress: {
                         external: true,
                         targetPort: 2368,
-                        transport: 'auto',
-                        customDomains
+                        transport: 'auto'
                     },
                     secrets: [{
                         name: 'storage-key',
@@ -193,7 +203,7 @@ class AcaManager {
                 containerAppEnvelope
             );
 
-            const fqdn = result.properties?.configuration?.ingress?.fqdn || '';
+            const fqdn = result.configuration?.ingress?.fqdn || '';
 
             const knex = this.getKnex();
             const subscriberId = crypto.randomUUID();
@@ -286,6 +296,17 @@ class AcaManager {
         }
 
         try {
+            await this.containerAppsClient.managedEnvironmentsStorages.delete(
+                this.resourceGroup,
+                this.environmentName,
+                shareName
+            );
+        } catch (error) {
+            logging.error(`Failed to deregister env storage ${shareName}:`, error);
+            errors.push(error);
+        }
+
+        try {
             const shareClient = this.shareServiceClient.getShareClient(shareName);
             await shareClient.delete();
         } catch (error) {
@@ -313,6 +334,46 @@ class AcaManager {
     }
 
     /**
+     * Add a custom domain binding to an existing container app.
+     * Requires DNS CNAME to be configured pointing to the ACA FQDN first.
+     * @param {string} subscriberUsername - Username of the subscriber
+     * @param {string} domainName - Custom domain to bind (e.g. 'alice.private-stack.dev')
+     * @param {string} [certificateId] - Managed certificate ID (omit for auto-provisioning)
+     */
+    async addCustomDomain(subscriberUsername, domainName, certificateId) {
+        const containerAppName = `ghost-sub-${subscriberUsername}`;
+
+        const app = await this.containerAppsClient.containerApps.get(
+            this.resourceGroup,
+            containerAppName
+        );
+
+        const existingDomains = app.configuration?.ingress?.customDomains || [];
+        existingDomains.push({
+            name: domainName,
+            bindingType: certificateId ? 'SniEnabled' : 'Disabled',
+            certificateId: certificateId || undefined
+        });
+
+        await this.containerAppsClient.containerApps.beginCreateOrUpdateAndWait(
+            this.resourceGroup,
+            containerAppName,
+            {
+                ...app,
+                configuration: {
+                    ...app.configuration,
+                    ingress: {
+                        ...app.configuration.ingress,
+                        customDomains: existingDomains
+                    }
+                }
+            }
+        );
+
+        logging.info(`Added custom domain ${domainName} to ${containerAppName}`);
+    }
+
+    /**
      * Get the status of a subscriber's container app
      * @param {string} subscriberUsername - Username of the subscriber
      * @returns {Promise<{provisioningState, runningStatus}>}
@@ -326,8 +387,8 @@ class AcaManager {
         );
 
         return {
-            provisioningState: app.properties?.provisioningState,
-            runningStatus: app.properties?.runningStatus
+            provisioningState: app.provisioningState,
+            runningStatus: app.runningStatus
         };
     }
 }
