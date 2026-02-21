@@ -63,6 +63,9 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.864.0",
+    "@azure/arm-appcontainers": "^3.0.0",
+    "@azure/identity": "^4.13.0",
+    "@azure/storage-file-share": "^12.30.0",
     "@extractus/oembed-extractor": "3.2.1",
     "@faker-js/faker": "7.6.0",
     "@isaacs/ttlcache": "1.4.1",
