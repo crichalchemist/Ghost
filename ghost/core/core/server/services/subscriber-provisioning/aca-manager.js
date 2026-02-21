@@ -102,9 +102,10 @@ class AcaManager {
 
         const dirClient = shareClient.getDirectoryClient('');
         const configContent = JSON.stringify(ghostConfig, null, 2);
+        const configBuffer = Buffer.from(configContent, 'utf8');
         const fileClient = dirClient.getFileClient('config.production.json');
-        await fileClient.create(configContent.length);
-        await fileClient.uploadRange(configContent, 0, configContent.length);
+        await fileClient.create(configBuffer.length);
+        await fileClient.uploadRange(configBuffer, 0, configBuffer.length);
     }
 
     /**
@@ -113,6 +114,12 @@ class AcaManager {
      * @returns {Promise<{containerAppName, fqdn, url, customDomain, subscriberId}>}
      */
     async createSubscriberContainer(subscriber) {
+        if (!subscriber.username || !/^[a-z][a-z0-9-]{0,20}$/.test(subscriber.username)) {
+            throw new Error(
+                `Invalid username "${subscriber.username}": must be 1-21 lowercase alphanumeric characters or hyphens, starting with a letter`
+            );
+        }
+
         const containerAppName = `ghost-sub-${subscriber.username}`;
         const shareName = `ghost-${subscriber.username}`;
 
@@ -222,6 +229,29 @@ class AcaManager {
             };
         } catch (error) {
             logging.error('Error creating ACA subscriber container:', error);
+
+            // Best-effort cleanup of partially provisioned resources
+            try {
+                const shareClient = this.shareServiceClient.getShareClient(shareName);
+                await shareClient.delete();
+                logging.info(`Cleaned up orphaned file share: ${shareName}`);
+            } catch (cleanupError) {
+                logging.error(`Failed to clean up file share ${shareName}:`, cleanupError);
+            }
+
+            try {
+                await this.containerAppsClient.containerApps.beginDeleteAndWait(
+                    this.resourceGroup,
+                    containerAppName
+                );
+                logging.info(`Cleaned up orphaned container app: ${containerAppName}`);
+            } catch (cleanupError) {
+                // Container may not have been created yet, 404 is expected
+                if (!cleanupError.statusCode || cleanupError.statusCode !== 404) {
+                    logging.error(`Failed to clean up container app ${containerAppName}:`, cleanupError);
+                }
+            }
+
             throw error;
         }
     }
@@ -243,18 +273,31 @@ class AcaManager {
             throw new Error(`Subscriber not found: ${subscriberUsername}`);
         }
 
-        await this.containerAppsClient.containerApps.beginDeleteAndWait(
-            this.resourceGroup,
-            containerAppName
-        );
+        const errors = [];
 
-        const shareClient = this.shareServiceClient.getShareClient(shareName);
-        await shareClient.delete();
+        try {
+            await this.containerAppsClient.containerApps.beginDeleteAndWait(
+                this.resourceGroup,
+                containerAppName
+            );
+        } catch (error) {
+            logging.error(`Failed to delete container app ${containerAppName}:`, error);
+            errors.push(error);
+        }
 
+        try {
+            const shareClient = this.shareServiceClient.getShareClient(shareName);
+            await shareClient.delete();
+        } catch (error) {
+            logging.error(`Failed to delete file share ${shareName}:`, error);
+            errors.push(error);
+        }
+
+        // Always log event and remove DB record, even if cloud cleanup partially failed
         await knex('subscriber_container_events').insert({
             subscriber_id: subscriber.id,
             event_type: 'deleted',
-            details: JSON.stringify({containerAppName}),
+            details: JSON.stringify({containerAppName, errors: errors.map(e => e.message)}),
             created_at: new Date()
         });
 
@@ -263,6 +306,10 @@ class AcaManager {
             .delete();
 
         logging.info(`Deleted ACA container for subscriber: ${subscriberUsername}`);
+
+        if (errors.length > 0) {
+            logging.warn(`Deletion completed with ${errors.length} error(s) for ${subscriberUsername}`);
+        }
     }
 
     /**

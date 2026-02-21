@@ -286,6 +286,60 @@ describe('AcaManager', function () {
             assert.equal(domains[1].bindingType, 'SniEnabled');
         });
 
+        it('should reject invalid usernames', async function () {
+            const manager = createManager();
+
+            await assert.rejects(
+                () => manager.createSubscriberContainer({
+                    id: 'member_123',
+                    email: 'test@example.com',
+                    username: 'UPPER_CASE',
+                    custom_domain: null
+                }),
+                {message: /Invalid username/}
+            );
+
+            await assert.rejects(
+                () => manager.createSubscriberContainer({
+                    id: 'member_123',
+                    email: 'test@example.com',
+                    username: 'has spaces',
+                    custom_domain: null
+                }),
+                {message: /Invalid username/}
+            );
+
+            await assert.rejects(
+                () => manager.createSubscriberContainer({
+                    id: 'member_123',
+                    email: 'test@example.com',
+                    username: '1startswithnumber',
+                    custom_domain: null
+                }),
+                {message: /Invalid username/}
+            );
+        });
+
+        it('should clean up file share if container app creation fails', async function () {
+            containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait
+                .rejects(new Error('ACA provisioning failed'));
+
+            const manager = createManager();
+
+            await assert.rejects(
+                () => manager.createSubscriberContainer({
+                    id: 'member_123',
+                    email: 'test@example.com',
+                    username: 'testuser',
+                    custom_domain: null
+                }),
+                {message: /ACA provisioning failed/}
+            );
+
+            const shareClient = shareServiceClientStub.getShareClient.returnValues[0];
+            sinon.assert.calledOnce(shareClient.delete);
+        });
+
         it('should return container app name and URL', async function () {
             const manager = createManager();
             const result = await manager.createSubscriberContainer({
@@ -330,6 +384,38 @@ describe('AcaManager', function () {
             sinon.assert.calledOnce(eventsInsertStub);
             const event = eventsInsertStub.firstCall.args[0];
             assert.equal(event.event_type, 'deleted');
+        });
+
+        it('should still remove database record if container app delete fails', async function () {
+            containerAppsClientStub.containerApps.beginDeleteAndWait
+                .rejects(new Error('ACA delete failed'));
+
+            const subscribersDeleteStub = sinon.stub().resolves();
+            const knexForDelete = function (tableName) {
+                if (tableName === 'subscribers') {
+                    return {
+                        where: sinon.stub().callsFake(() => ({
+                            first: sinon.stub().resolves({
+                                id: 'sub_123',
+                                username: 'testuser',
+                                container_id: 'ghost-sub-testuser'
+                            }),
+                            delete: subscribersDeleteStub
+                        }))
+                    };
+                }
+                if (tableName === 'subscriber_container_events') {
+                    return {insert: eventsInsertStub};
+                }
+                return {insert: sinon.stub().resolves()};
+            };
+
+            const manager = createManager();
+            manager.getKnex = () => knexForDelete;
+            await manager.deleteSubscriberContainer('testuser');
+
+            sinon.assert.calledOnce(subscribersDeleteStub);
+            sinon.assert.calledOnce(eventsInsertStub);
         });
 
         it('should throw if subscriber not found', async function () {
