@@ -214,3 +214,6 @@ yalc.lock
 
 # Git worktrees - isolated development workspaces
 /.worktrees
+
+# TLS certificates
+/origin certs/

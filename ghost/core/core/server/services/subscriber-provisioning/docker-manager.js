@@ -201,7 +201,10 @@ class DockerManager {
      * Port is always 2368 (Ghost's internal port) — host port mapping is separate
      */
     generateConfig(subscriber, _hostPort) {
-        return {
+        const config = require('../../../shared/config');
+        const tinybirdConfig = config.get('tinybird');
+
+        const ghostConfig = {
             url: `https://${subscriber.username}.private-stack.dev`,
             port: 2368,
             database: {
@@ -225,6 +228,21 @@ class DockerManager {
                 useUpdateCheck: false
             }
         };
+
+        // Inherit tinybird analytics from main site config
+        // Subscribers share the workspace — site_uuid provides per-site isolation
+        if (tinybirdConfig && tinybirdConfig.workspaceId) {
+            ghostConfig.tinybird = {
+                workspaceId: tinybirdConfig.workspaceId,
+                adminToken: tinybirdConfig.adminToken,
+                tracker: {
+                    endpoint: '/.ghost/analytics/api/v1/page_hit'
+                },
+                stats: tinybirdConfig.stats
+            };
+        }
+
+        return ghostConfig;
     }
 }
 

@@ -69,7 +69,10 @@ class AcaManager {
      * @returns {Object} Ghost config object
      */
     generateGhostConfig(subscriber) {
-        return {
+        const config = require('../../../shared/config');
+        const tinybirdConfig = config.get('tinybird');
+
+        const ghostConfig = {
             url: `https://${subscriber.username}.${this.domain}`,
             port: 2368,
             database: {
@@ -89,6 +92,21 @@ class AcaManager {
                 useUpdateCheck: false
             }
         };
+
+        // Inherit tinybird analytics from main site config
+        // Subscribers share the workspace — site_uuid provides per-site isolation
+        if (tinybirdConfig && tinybirdConfig.workspaceId) {
+            ghostConfig.tinybird = {
+                workspaceId: tinybirdConfig.workspaceId,
+                adminToken: tinybirdConfig.adminToken,
+                tracker: {
+                    endpoint: '/.ghost/analytics/api/v1/page_hit'
+                },
+                stats: tinybirdConfig.stats
+            };
+        }
+
+        return ghostConfig;
     }
 
     /**

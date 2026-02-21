@@ -1,0 +1,69 @@
+# Standalone Tinybird analytics deployment for PrivateStack
+# Usage: docker compose -f compose.tinybird.yaml up -d
+#
+# Services:
+#   tinybird-local (port 7181) — ClickHouse analytics database
+#   tb-cli (one-shot) — deploys datasources/pipes, generates tokens
+#   analytics (port 3000) — event ingestion proxy
+
+services:
+  tinybird-local:
+    image: tinybirdco/tinybird-local:latest
+    container_name: ghost-tinybird
+    platform: linux/amd64
+    stop_grace_period: 2s
+    ports:
+      - "7181:7181"
+    volumes:
+      - tinybird-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7181/v0/health"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+    restart: unless-stopped
+
+  tb-cli:
+    build:
+      context: ./
+      dockerfile: docker/tb-cli/Dockerfile
+    container_name: ghost-tb-cli
+    working_dir: /home/tinybird
+    environment:
+      - TB_HOST=http://tinybird-local:7181
+      - TB_LOCAL_HOST=tinybird-local
+    volumes:
+      - ./ghost/core/core/server/data/tinybird:/home/tinybird
+      - tinybird-config:/mnt/shared-config
+    depends_on:
+      tinybird-local:
+        condition: service_healthy
+
+  analytics:
+    image: ghost/traffic-analytics:1.0.44
+    container_name: ghost-analytics
+    platform: linux/amd64
+    command: ["node", "--enable-source-maps", "dist/server.js"]
+    entrypoint: ["/app/entrypoint.sh"]
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      interval: 1s
+      retries: 120
+    volumes:
+      - ./docker/analytics/entrypoint.sh:/app/entrypoint.sh:ro
+      - tinybird-config:/mnt/shared-config:ro
+    environment:
+      - PROXY_TARGET=http://tinybird-local:7181/v0/events
+      - TINYBIRD_WAIT=true
+    depends_on:
+      tinybird-local:
+        condition: service_healthy
+      tb-cli:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  tinybird-data:
+  tinybird-config:
