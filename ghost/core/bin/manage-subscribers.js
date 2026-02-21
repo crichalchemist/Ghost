@@ -35,13 +35,16 @@ async function main() {
     const args = process.argv.slice(2);
 
     if (args.length === 0) {
-        const cli = new SubscriberManagementCLI();
-        await cli.help();
+        new SubscriberManagementCLI().help();
         process.exit(0);
     }
 
     const {command, options} = parseArgs(args);
-    const cli = new SubscriberManagementCLI();
+    const config = {};
+    if (options.provider) {
+        config.provider = options.provider;
+    }
+    const cli = new SubscriberManagementCLI(config);
 
     try {
         switch (command) {

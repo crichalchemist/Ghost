@@ -2,8 +2,8 @@ const logging = require('@tryghost/logging');
 const SubscriberProvisioningService = require('../services/subscriber-provisioning');
 
 class SubscriberManagementCLI {
-    constructor() {
-        this.provisioner = new SubscriberProvisioningService();
+    constructor(config = {}) {
+        this.provisioner = new SubscriberProvisioningService(config);
     }
 
     async create({email, username, customDomain}) {
@@ -17,7 +17,15 @@ class SubscriberManagementCLI {
             console.log(`  Username: ${username}`);
             console.log(`  Email: ${email}`);
             console.log(`  URL: ${result.url}`);
-            console.log(`  Port: ${result.port}`);
+            if (result.port) {
+                console.log(`  Port: ${result.port}`);
+            }
+            if (result.containerAppName) {
+                console.log(`  Container App: ${result.containerAppName}`);
+            }
+            if (result.fqdn) {
+                console.log(`  FQDN: ${result.fqdn}`);
+            }
             if (customDomain) {
                 console.log(`  Custom Domain: ${customDomain}`);
             }
@@ -89,6 +97,10 @@ Options:
   --email=EMAIL              Email address for the subscriber (required for create)
   --username=USERNAME        Subdomain username (required for create/delete)
   --custom-domain=DOMAIN     Custom domain for the subscriber (optional)
+  --provider=PROVIDER        Container provider: 'docker' (default) or 'aca'
+
+Environment:
+  GHOST_CONTAINER_PROVIDER   Set to 'aca' for Azure Container Apps mode
 
 Examples:
   node bin/manage-subscribers.js create --email=john@example.com --username=john
