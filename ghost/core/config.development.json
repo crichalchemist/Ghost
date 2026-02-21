@@ -1,5 +1,8 @@
 {
     "enableDeveloperExperiments": true,
+    "portal": {
+        "url": "http://localhost:2368/public/portal.min.js"
+    },
     "database": {
         "client": "mysql",
         "connection": {

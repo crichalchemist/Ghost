@@ -7,6 +7,7 @@ Welcome to the Ghost contributor documentation! This guide will help you underst
 ### Prerequisites
 
 - **Node.js** - Recommended to install via [nvm](https://github.com/nvm-sh/nvm)
+- 
 - **Yarn** - Package manager
 - **Docker** - For MySQL database and development services
 
