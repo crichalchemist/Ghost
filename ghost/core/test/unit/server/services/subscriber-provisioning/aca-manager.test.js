@@ -112,6 +112,24 @@ describe('AcaManager', function () {
             const config = manager.generateGhostConfig({username: 'testuser'});
             assert.equal(config.privacy.useUpdateCheck, false);
         });
+
+        it('should use configurable SMTP host and port', function () {
+            const manager = createManager({
+                smtp: {host: '10.0.1.5', port: 25}
+            });
+            const config = manager.generateGhostConfig({username: 'testuser'});
+
+            assert.equal(config.mail.options.host, '10.0.1.5');
+            assert.equal(config.mail.options.port, 25);
+        });
+
+        it('should default SMTP to rentfall private IP (10.0.0.4) on port 587', function () {
+            const manager = createManager();
+            const config = manager.generateGhostConfig({username: 'testuser'});
+
+            assert.equal(config.mail.options.host, '10.0.0.4');
+            assert.equal(config.mail.options.port, 587);
+        });
     });
 
     describe('createSubscriberContainer', function () {
@@ -233,6 +251,39 @@ describe('AcaManager', function () {
             sinon.assert.calledOnce(eventsInsertStub);
             const event = eventsInsertStub.firstCall.args[0];
             assert.equal(event.event_type, 'created');
+        });
+
+        it('should set primary custom domain binding on ingress', async function () {
+            const manager = createManager();
+            await manager.createSubscriberContainer({
+                id: 'member_123',
+                email: 'test@example.com',
+                username: 'testuser',
+                custom_domain: null
+            });
+
+            const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
+            const domains = envelope.configuration.ingress.customDomains;
+            assert.equal(domains.length, 1);
+            assert.equal(domains[0].name, 'testuser.private-stack.dev');
+            assert.equal(domains[0].bindingType, 'SniEnabled');
+        });
+
+        it('should include subscriber custom domain binding when provided', async function () {
+            const manager = createManager();
+            await manager.createSubscriberContainer({
+                id: 'member_123',
+                email: 'test@example.com',
+                username: 'testuser',
+                custom_domain: 'myblog.com'
+            });
+
+            const envelope = containerAppsClientStub.containerApps.beginCreateOrUpdateAndWait.firstCall.args[2];
+            const domains = envelope.configuration.ingress.customDomains;
+            assert.equal(domains.length, 2);
+            assert.equal(domains[0].name, 'testuser.private-stack.dev');
+            assert.equal(domains[1].name, 'myblog.com');
+            assert.equal(domains[1].bindingType, 'SniEnabled');
         });
 
         it('should return container app name and URL', async function () {

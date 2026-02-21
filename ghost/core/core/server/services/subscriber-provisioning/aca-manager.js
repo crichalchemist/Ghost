@@ -17,6 +17,9 @@ class AcaManager {
      * @param {string} [options.ghostImage]
      * @param {number} [options.cpu]
      * @param {string} [options.memoryGi]
+     * @param {Object} [options.smtp] - SMTP configuration for subscriber mail
+     * @param {string} [options.smtp.host] - SMTP relay host (e.g. rentfall private IP)
+     * @param {number} [options.smtp.port] - SMTP relay port
      */
     constructor(options = {}) {
         if (options.containerAppsClient) {
@@ -54,6 +57,10 @@ class AcaManager {
         this.ghostImage = options.ghostImage || 'ghost:5-alpine';
         this.cpu = options.cpu || 0.5;
         this.memoryGi = options.memoryGi || '1Gi';
+        this.smtp = {
+            host: (options.smtp && options.smtp.host) || '10.0.0.4',
+            port: (options.smtp && options.smtp.port) || 587
+        };
     }
 
     /**
@@ -74,9 +81,8 @@ class AcaManager {
             mail: {
                 transport: 'SMTP',
                 options: {
-                    host: '127.0.0.1',
-                    port: 1025,
-                    auth: {user: 'test', pass: 'test'}
+                    host: this.smtp.host,
+                    port: this.smtp.port
                 }
             },
             privacy: {
@@ -117,6 +123,19 @@ class AcaManager {
             const subscriptionId = this.containerAppsClient.subscriptionId || '';
             const managedEnvironmentId = `/subscriptions/${subscriptionId}/resourceGroups/${this.resourceGroup}/providers/Microsoft.App/managedEnvironments/${this.environmentName}`;
 
+            const customDomains = [];
+            const primaryDomain = `${subscriber.username}.${this.domain}`;
+            customDomains.push({
+                name: primaryDomain,
+                bindingType: 'SniEnabled'
+            });
+            if (subscriber.custom_domain) {
+                customDomains.push({
+                    name: subscriber.custom_domain,
+                    bindingType: 'SniEnabled'
+                });
+            }
+
             const containerAppEnvelope = {
                 location: this.location,
                 managedEnvironmentId,
@@ -124,7 +143,8 @@ class AcaManager {
                     ingress: {
                         external: true,
                         targetPort: 2368,
-                        transport: 'auto'
+                        transport: 'auto',
+                        customDomains
                     },
                     secrets: [{
                         name: 'storage-key',
