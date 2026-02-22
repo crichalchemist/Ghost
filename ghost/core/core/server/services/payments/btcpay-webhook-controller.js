@@ -200,7 +200,8 @@ class BTCPayWebhookController {
                     id: subscriptionId,
                     email: member.email,
                     username: username,
-                    custom_domain: null
+                    custom_domain: null,
+                    onion_enabled: !!metadata.onion_enabled
                 });
 
                 // Store container info in subscription metadata

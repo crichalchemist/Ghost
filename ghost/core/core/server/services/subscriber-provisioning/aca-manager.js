@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const logging = require('@tryghost/logging');
+const onionAddress = require('./onion-address');
+const SlimerClient = require('./slimer-client');
 
 class AcaManager {
     /**
@@ -61,6 +63,7 @@ class AcaManager {
             host: (options.smtp && options.smtp.host) || '10.0.0.4',
             port: (options.smtp && options.smtp.port) || 587
         };
+        this.slimerClient = options.slimerClient || new SlimerClient(options.slimer);
     }
 
     /**
@@ -248,11 +251,22 @@ class AcaManager {
 
             logging.info(`Created ACA container for subscriber: ${subscriber.username} — ${fqdn}`);
 
+            // Provision Tor hidden service if requested
+            let onion = null;
+            if (subscriber.onion_enabled) {
+                try {
+                    onion = await this._provisionOnionService(subscriber.username, fqdn, subscriberId);
+                } catch (onionError) {
+                    logging.error(`Onion provisioning failed for ${subscriber.username} (non-blocking):`, onionError);
+                }
+            }
+
             return {
                 containerAppName,
                 fqdn,
                 url: `https://${subscriber.username}.${this.domain}`,
                 customDomain: subscriber.custom_domain || null,
+                onionAddress: onion ? onion.hostname : null,
                 subscriberId
             };
         } catch (error) {
@@ -332,6 +346,16 @@ class AcaManager {
             errors.push(error);
         }
 
+        // Remove onion hidden service if one was provisioned
+        if (subscriber.onion_address) {
+            try {
+                await this.slimerClient.removeHiddenService(subscriberUsername);
+            } catch (error) {
+                logging.error(`Failed to remove onion service for ${subscriberUsername}:`, error);
+                errors.push(error);
+            }
+        }
+
         // Always log event and remove DB record, even if cloud cleanup partially failed
         await knex('subscriber_container_events').insert({
             subscriber_id: subscriber.id,
@@ -389,6 +413,40 @@ class AcaManager {
         );
 
         logging.info(`Added custom domain ${domainName} to ${containerAppName}`);
+    }
+
+    /**
+     * Generate .onion keys, register with slimer, and store address in DB.
+     * @param {string} username
+     * @param {string} targetFqdn - ACA container FQDN (reachable over VNet)
+     * @param {string} subscriberId - DB row ID
+     * @returns {Promise<{hostname: string, onionAddress: string}>}
+     */
+    async _provisionOnionService(username, targetFqdn, subscriberId) {
+        const keys = onionAddress.generate();
+        const formattedPublicKey = onionAddress.formatPublicKey(keys.publicKey);
+        const formattedSecretKey = onionAddress.formatSecretKey(keys.secretKey);
+
+        // Target is the ACA internal FQDN on port 2368 (reachable via VNet from slimer)
+        await this.slimerClient.createHiddenService({
+            username,
+            target: `${targetFqdn}:2368`,
+            publicKey: formattedPublicKey,
+            secretKey: formattedSecretKey,
+            hostname: keys.hostname
+        });
+
+        // Store .onion address in DB
+        const knex = this.getKnex();
+        await knex('subscribers')
+            .where('id', subscriberId)
+            .update({
+                onion_address: keys.hostname,
+                updated_at: new Date()
+            });
+
+        logging.info(`Provisioned .onion for ${username}: ${keys.hostname}`);
+        return keys;
     }
 
     /**

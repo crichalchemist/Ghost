@@ -1,6 +1,8 @@
 const path = require('path');
 const crypto = require('crypto');
 const logging = require('@tryghost/logging');
+const onionAddress = require('./onion-address');
+const SlimerClient = require('./slimer-client');
 
 class DockerManager {
     /**
@@ -21,6 +23,7 @@ class DockerManager {
         this.subscribersPath = options.subscribersPath || '/home/crichalchemist/subscribers';
         this.basePort = options.basePort || 2370;
         this.network = options.network || 'privatestack-subscribers';
+        this.slimerClient = options.slimerClient || new SlimerClient(options.slimer);
     }
 
     /**
@@ -143,11 +146,22 @@ class DockerManager {
 
             logging.info(`Created Ghost container for subscriber: ${subscriber.username} on port ${port}`);
 
+            // Provision Tor hidden service if requested
+            let onion = null;
+            if (subscriber.onion_enabled) {
+                try {
+                    onion = await this._provisionOnionService(subscriber.username, `127.0.0.1:${port}`, subscriberId);
+                } catch (onionError) {
+                    logging.error(`Onion provisioning failed for ${subscriber.username} (non-blocking):`, onionError);
+                }
+            }
+
             return {
                 container: container.id,
                 port,
                 url: `https://${subscriber.username}.private-stack.dev`,
                 customDomain: subscriber.custom_domain || null,
+                onionAddress: onion ? onion.hostname : null,
                 subscriberId
             };
         } catch (error) {
@@ -169,6 +183,15 @@ class DockerManager {
 
         if (!subscriber) {
             throw new Error(`Subscriber not found: ${subscriberUsername}`);
+        }
+
+        // Remove onion hidden service if one was provisioned
+        if (subscriber.onion_address) {
+            try {
+                await this.slimerClient.removeHiddenService(subscriberUsername);
+            } catch (error) {
+                logging.error(`Failed to remove onion service for ${subscriberUsername}:`, error);
+            }
         }
 
         // Stop and remove Docker container
@@ -194,6 +217,38 @@ class DockerManager {
         await this.fs.remove(subscriberDir);
 
         logging.info(`Deleted Ghost container for subscriber: ${subscriberUsername}`);
+    }
+
+    /**
+     * Generate .onion keys, register with slimer, and store address in DB.
+     * @param {string} username
+     * @param {string} target - Container target address (e.g. "127.0.0.1:2370")
+     * @param {string} subscriberId - DB row ID
+     * @returns {Promise<{hostname: string, onionAddress: string}>}
+     */
+    async _provisionOnionService(username, target, subscriberId) {
+        const keys = onionAddress.generate();
+        const formattedPublicKey = onionAddress.formatPublicKey(keys.publicKey);
+        const formattedSecretKey = onionAddress.formatSecretKey(keys.secretKey);
+
+        await this.slimerClient.createHiddenService({
+            username,
+            target,
+            publicKey: formattedPublicKey,
+            secretKey: formattedSecretKey,
+            hostname: keys.hostname
+        });
+
+        const knex = this.getKnex();
+        await knex('subscribers')
+            .where('id', subscriberId)
+            .update({
+                onion_address: keys.hostname,
+                updated_at: new Date()
+            });
+
+        logging.info(`Provisioned .onion for ${username}: ${keys.hostname}`);
+        return keys;
     }
 
     /**
