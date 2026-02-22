@@ -63,7 +63,16 @@ class AcaManager {
             host: (options.smtp && options.smtp.host) || '10.0.0.4',
             port: (options.smtp && options.smtp.port) || 587
         };
-        this.slimerClient = options.slimerClient || new SlimerClient(options.slimer);
+        // Read slimer config from Ghost shared config if not explicitly provided
+        const slimerOpts = options.slimer || (() => {
+            try {
+                const ghostConfig = require('../../../shared/config');
+                return ghostConfig.get('slimer') || {};
+            } catch {
+                return {};
+            }
+        })();
+        this.slimerClient = options.slimerClient || new SlimerClient(slimerOpts);
     }
 
     /**

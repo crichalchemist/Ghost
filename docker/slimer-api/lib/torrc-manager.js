@@ -1,15 +1,18 @@
 const fs = require('fs');
 const path = require('path');
+const {execSync} = require('child_process');
 
 class TorrcManager {
     /**
      * @param {Object} opts
      * @param {string} opts.torrcPath - Absolute path to the torrc file
      * @param {string} opts.hiddenServicesDir - Base directory for hidden service directories
+     * @param {string} [opts.torUser] - User that Tor runs as (for chown). Null to skip chown.
      */
-    constructor({torrcPath, hiddenServicesDir}) {
+    constructor({torrcPath, hiddenServicesDir, torUser = null}) {
         this.torrcPath = torrcPath;
         this.hiddenServicesDir = hiddenServicesDir;
+        this.torUser = torUser;
     }
 
     /**
@@ -77,6 +80,11 @@ class TorrcManager {
 
         // Create directory with Tor-required permissions (0700)
         fs.mkdirSync(serviceDir, {mode: 0o700, recursive: true});
+
+        // Tor requires the hidden service directory to be owned by its user
+        if (this.torUser) {
+            execSync(`chown ${this.torUser}:${this.torUser} ${serviceDir}`);
+        }
 
         // Append to torrc
         const content = fs.readFileSync(this.torrcPath, 'utf8');
@@ -149,6 +157,11 @@ class TorrcManager {
         fs.writeFileSync(path.join(serviceDir, 'hs_ed25519_public_key'), publicKey, {mode: 0o600});
         fs.writeFileSync(path.join(serviceDir, 'hs_ed25519_secret_key'), secretKey, {mode: 0o600});
         fs.writeFileSync(path.join(serviceDir, 'hostname'), hostname + '\n', {mode: 0o600});
+
+        // Tor requires key files to be owned by its user
+        if (this.torUser) {
+            execSync(`chown ${this.torUser}:${this.torUser} ${path.join(serviceDir, 'hs_ed25519_public_key')} ${path.join(serviceDir, 'hs_ed25519_secret_key')} ${path.join(serviceDir, 'hostname')}`);
+        }
     }
 
     /**

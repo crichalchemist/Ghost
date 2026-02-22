@@ -12,13 +12,14 @@ const USERNAME_REGEX = /^[a-z0-9][a-z0-9-]{0,62}$/;
  * @param {string} opts.hiddenServicesDir
  * @param {string} opts.authSecret
  * @param {boolean} [opts.signalTor=true] - Whether to send SIGHUP to Tor after changes
+ * @param {string} [opts.torUser] - User that Tor runs as (for chown)
  * @returns {express.Express}
  */
-function createApp({torrcPath, hiddenServicesDir, authSecret, signalTor = true}) {
+function createApp({torrcPath, hiddenServicesDir, authSecret, signalTor = true, torUser = null}) {
     const app = express();
     app.use(express.json());
 
-    const manager = new TorrcManager({torrcPath, hiddenServicesDir});
+    const manager = new TorrcManager({torrcPath, hiddenServicesDir, torUser});
 
     // Auth middleware (skip for /health)
     app.use((req, res, next) => {
