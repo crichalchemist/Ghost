@@ -1102,7 +1102,13 @@ Post = ghostBookshelf.Model.extend({
     },
 
     enforcedFilters: function enforcedFilters(options) {
-        return options.context && options.context.public ? 'status:published' : null;
+        if (options.context && options.context.public) {
+            if (options.context.isOnionRequest) {
+                return 'status:published';
+            }
+            return 'status:published+onion_only:false';
+        }
+        return null;
     },
 
     defaultFilters: function defaultFilters(options) {

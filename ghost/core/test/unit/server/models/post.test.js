@@ -292,7 +292,7 @@ describe('Unit: models/post', function () {
 
             const filter = enforcedFilters({}, options);
 
-            assert.equal(filter, 'status:published');
+            assert.equal(filter, 'status:published+onion_only:false');
         });
 
         it('returns no status filter for non public context', function () {
@@ -305,6 +305,34 @@ describe('Unit: models/post', function () {
             const filter = enforcedFilters({}, options);
 
             assert.equal(filter, null);
+        });
+
+        it('should filter onion_only posts on clearnet', function () {
+            const filter = enforcedFilters({}, {
+                context: {public: true, isOnionRequest: false}
+            });
+            assert.equal(filter, 'status:published+onion_only:false');
+        });
+
+        it('should not filter onion_only posts on .onion requests', function () {
+            const filter = enforcedFilters({}, {
+                context: {public: true, isOnionRequest: true}
+            });
+            assert.equal(filter, 'status:published');
+        });
+
+        it('should not filter onion_only posts for internal (admin) context', function () {
+            const filter = enforcedFilters({}, {
+                context: {internal: true}
+            });
+            assert.equal(filter, null);
+        });
+
+        it('should not filter onion_only when isOnionRequest is undefined (default clearnet)', function () {
+            const filter = enforcedFilters({}, {
+                context: {public: true}
+            });
+            assert.equal(filter, 'status:published+onion_only:false');
         });
     });
 
