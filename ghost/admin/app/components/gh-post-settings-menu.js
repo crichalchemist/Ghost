@@ -222,6 +222,22 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     @action
+    toggleOnionOnly() {
+        this.post.onionOnly = !this.post.onionOnly;
+
+        // If this is a new post.  Don't save the post.  Defer the save
+        // to the user pressing the save button
+        if (this.post.isNew) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
 
