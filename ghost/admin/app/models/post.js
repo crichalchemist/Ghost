@@ -86,6 +86,7 @@ export default Model.extend(Comparable, ValidationEngine, {
     excerpt: attr('string'),
     customExcerpt: attr('string'),
     featured: attr('boolean', {defaultValue: false}),
+    onionOnly: attr('boolean', {defaultValue: false}),
     canonicalUrl: attr('string'),
     codeinjectionFoot: attr('string', {defaultValue: ''}),
     codeinjectionHead: attr('string', {defaultValue: ''}),
