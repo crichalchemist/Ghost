@@ -41,7 +41,7 @@ function entryLookup(postUrl, routerOptions, locals) {
         include: 'authors,tags,tiers'
     };
 
-    options.context = {member: locals.member};
+    options.context = {member: locals.member, isOnionRequest: locals.isOnionRequest};
 
     return (api[routerOptions.query.controller] || api[routerOptions.query.resource])
         .read(_.extend(_.pick(params, 'slug', 'id'), options))

@@ -54,7 +54,7 @@ function processQuery(query, slugParam, locals) {
         query.options[name] = _.isString(option) ? option.replace(/%s/g, slugParam) : option;
     });
 
-    query.options.context = {member: locals.member};
+    query.options.context = {member: locals.member, isOnionRequest: locals.isOnionRequest};
 
     return (api[query.controller] || api[query.resource])[query.type](query.options);
 }
