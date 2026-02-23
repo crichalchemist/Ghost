@@ -17,5 +17,8 @@ module.exports = function ghostLocals(req, res, next) {
     // relative path from the URL
     res.locals.relativeUrl = req.path;
 
+    // Detect .onion requests for onion-only post filtering
+    res.locals.isOnionRequest = (req.hostname || '').endsWith('.onion');
+
     next();
 };
