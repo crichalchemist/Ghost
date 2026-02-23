@@ -178,6 +178,30 @@
                                 </div>
                             </li>
                         {{/unless}}
+                        <li class="nav-list-item">
+                            <div class="for-switch xs">
+                                <label class="switch" for="onion-only" {{action "toggleOnionOnly" bubbles="false"}}>
+                                    <span>
+                                        {{#if this.post.onionOnly}}
+                                            {{svg-jar "lock-filled" class="feature"}}
+                                        {{else}}
+                                            {{svg-jar "lock" class="feature"}}
+                                        {{/if}}
+                                        Onion-only {{this.post.displayName}}
+                                    </span>
+                                    <span class="gh-toggle-featured">
+                                        <input
+                                            type="checkbox"
+                                            checked={{this.post.onionOnly}}
+                                            class="gh-input post-settings-featured gh-input-x"
+                                            onclick={{action (mut this.post.onionOnly) value="target.checked"}}
+                                            data-test-checkbox="onion-only"
+                                        >
+                                        <span class="input-toggle-component"></span>
+                                    </span>
+                                </label>
+                            </div>
+                        </li>
                         {{#if this.canViewPostHistory}}
                             <li class="nav-list-item">
                                 <button type="button" {{on "click" this.openPostHistory}} data-test-toggle="post-history">
