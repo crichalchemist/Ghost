@@ -1,0 +1,37 @@
+# Tor hidden service development environment
+# Use with: docker compose -f compose.dev.yaml -f compose.dev.tor.yaml up
+#
+# Runs a local slimer-api instance for testing .onion provisioning flows.
+# No actual Tor daemon — slimer-api manages torrc/keys but SIGNAL_TOR=false
+# so it won't attempt to reload Tor. This is sufficient for testing the
+# provisioning pipeline without waiting for .onion addresses to publish.
+
+services:
+  slimer-api:
+    build:
+      context: ./docker/slimer-api
+    container_name: ghost-dev-slimer
+    ports:
+      - "3100:3100"
+    volumes:
+      - tor-hidden-services:/var/lib/tor/hidden-services
+      - ./docker/slimer-api/dev-torrc:/etc/tor/torrc
+    environment:
+      - AUTH_SECRET=dev-secret-do-not-use-in-production
+      - TORRC_PATH=/etc/tor/torrc
+      - HIDDEN_SERVICES_DIR=/var/lib/tor/hidden-services
+      - SIGNAL_TOR=false
+      - TOR_USER=root
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/health').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))\""]
+      interval: 1s
+      retries: 30
+    restart: unless-stopped
+
+  ghost-dev:
+    environment:
+      slimer__baseUrl: http://slimer-api:3100
+      slimer__authSecret: dev-secret-do-not-use-in-production
+
+volumes:
+  tor-hidden-services:
