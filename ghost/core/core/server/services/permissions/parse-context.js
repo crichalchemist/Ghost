@@ -35,5 +35,9 @@ module.exports = function parseContext(context) {
         parsed.member = context.member;
     }
 
+    if (context && context.isOnionRequest !== undefined) {
+        parsed.isOnionRequest = context.isOnionRequest;
+    }
+
     return parsed;
 };
